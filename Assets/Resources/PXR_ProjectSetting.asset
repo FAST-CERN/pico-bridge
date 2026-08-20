@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: PXR_ProjectSetting
   m_EditorClassIdentifier: 
   useContentProtect: 0
-  handTracking: 1
+  handTracking: 0
   adaptiveHand: 0
   highFrequencyHand: 0
   openMRC: 1
@@ -26,10 +26,10 @@ MonoBehaviour:
   latelatching: 0
   latelatchingDebug: 0
   enableSubsampled: 0
-  bodyTracking: 1
+  bodyTracking: 0
   adaptiveResolution: 0
   stageMode: 0
-  videoSeeThrough: 1
+  videoSeeThrough: 0
   spatialAnchor: 0
   sceneCapture: 0
   sharedAnchor: 0
@@ -45,11 +45,11 @@ MonoBehaviour:
   handTrackingSupportType: 0
   arFoundation: 0
   mrSafeguard: 0
-  enableRecommendMSAA: 1
+  enableRecommendMSAA: 0
   recommendSubsamping: 0
-  recommendMSAA: 1
+  recommendMSAA: 0
   validationFFREnabled: 0
   validationETFREnabled: 0
-  portalInited: 1
+  portalInited: 0
   isDataCollectionDisabled: 0
   portalFirstSelected: 0

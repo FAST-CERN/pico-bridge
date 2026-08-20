@@ -58,6 +58,7 @@ namespace PicoBridge.UI
             ConfigureOpacityControl();
             ConfigureCollapseControl();
             ApplyCollapseState();
+            ConfigureImmersiveControl();
         }
 
         private void Start()
@@ -68,6 +69,13 @@ namespace PicoBridge.UI
 
         private void OnDisable()
         {
+            // The panel is also hidden while stereo immersive mode is active;
+            // in that case the WebRTC preview must keep running (the immersive
+            // rig consumes the same texture).
+            var immersive = FindObjectOfType<PicoBridge.Immersive.StereoImmersiveController>();
+            if (immersive != null && immersive.IsImmersiveActive)
+                return;
+
             if (_cameraPreviewRequested)
                 manager?.WebRtcCamera?.StopPreview();
 
@@ -80,6 +88,37 @@ namespace PicoBridge.UI
                 view.uiOpacitySlider.onValueChanged.RemoveListener(SetUiOpacity);
             if (view != null && view.collapseButton != null)
                 view.collapseButton.onClick.RemoveListener(ToggleCollapsed);
+            if (view != null && view.immersiveButton != null)
+                view.immersiveButton.onClick.RemoveListener(EnterImmersiveMode);
+        }
+
+        private void ConfigureImmersiveControl()
+        {
+            if (view == null || view.immersiveButton == null)
+                return;
+
+            view.immersiveButton.onClick.RemoveListener(EnterImmersiveMode);
+            view.immersiveButton.onClick.AddListener(EnterImmersiveMode);
+        }
+
+        private void EnterImmersiveMode()
+        {
+            var controller = FindObjectOfType<PicoBridge.Immersive.StereoImmersiveController>();
+            if (controller == null)
+            {
+                Debug.LogWarning("[PicoBridge] Stereo immersive controller not found");
+                return;
+            }
+
+            // Make sure the SBS video preview is running before entering.
+            if (manager != null && manager.IsConnected && manager.TcpClient != null &&
+                !manager.WebRtcCamera.IsActive)
+            {
+                _cameraPreviewRequested = true;
+                manager.WebRtcCamera.StartPreview(manager.TcpClient, 2560, 720, 30, 12 * 1024 * 1024);
+            }
+
+            controller.EnterImmersive();
         }
 
         private void Update()
@@ -137,7 +176,9 @@ namespace PicoBridge.UI
                 return;
 
             _cameraPreviewRequested = true;
-            manager.WebRtcCamera.StartPreview(manager.TcpClient, 1280, 720, 30, 8 * 1024 * 1024);
+            // SBS packed frame at standard 720p height (2x 1280x720 per eye):
+            // Pico's H.264 decoder rejects the non-standard 1280x480 stream.
+            manager.WebRtcCamera.StartPreview(manager.TcpClient, 2560, 720, 30, 12 * 1024 * 1024);
         }
 
         private void RefreshAll()

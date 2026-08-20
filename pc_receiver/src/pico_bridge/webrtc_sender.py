@@ -47,6 +47,30 @@ class TestPatternTrack(_VideoStreamTrackBase):
         return video_frame
 
 
+class SbsTestPatternTrack(_VideoStreamTrackBase):
+    """Synthetic side-by-side stereo track with per-eye disparity markers."""
+
+    kind = "video"
+
+    def __init__(self, width: int, height: int, fps: int):
+        super().__init__()
+        self.width = width
+        self.height = height
+        self.fps = max(1, fps)
+        self._frame_index = 0
+        self._time_base = Fraction(1, 90_000)
+        self._pts_step = 90_000 // self.fps
+
+    async def recv(self) -> av.VideoFrame:
+        await asyncio.sleep(1 / self.fps)
+        frame = _make_sbs_test_frame(self.width, self.height, self._frame_index)
+        video_frame = av.VideoFrame.from_ndarray(frame, format="rgb24")
+        video_frame.pts = self._frame_index * self._pts_step
+        video_frame.time_base = self._time_base
+        self._frame_index += 1
+        return video_frame
+
+
 class ExternalVideoFrameSource:
     """Thread-safe latest-frame buffer for user-supplied RGB video."""
 
@@ -136,6 +160,42 @@ def _make_rgb_test_frame(width: int, height: int, frame_index: int) -> np.ndarra
     return frame
 
 
+def _make_sbs_test_frame(width: int, height: int, frame_index: int) -> np.ndarray:
+    """Side-by-side stereo test frame with per-eye shifted markers.
+
+    Left/right halves render the same pattern with a horizontal marker
+    offset, so correct stereoscopic display produces visible depth: markers
+    shifted left in the right eye appear NEAR, shifted right appear FAR.
+    Label row distinguishes the halves directly ("L"/"R" corner tags).
+    """
+    half = width // 2
+    base = _make_rgb_test_frame(half, height, frame_index)
+
+    frame = np.empty((height, width, 3), dtype=np.uint8)
+    frame[:, :half, :] = base
+    frame[:, half:, :] = base
+
+    # Marker columns with per-eye disparity (pixels). Positive = right eye
+    # shifted left = near object.
+    disparity = max(1, half // 32)
+    bar_w = max(2, half // 24)
+    for k, x_frac in enumerate((0.3, 0.5, 0.7)):
+        cx = int(half * x_frac)
+        # Left eye position
+        lx = cx
+        frame[:, lx : lx + bar_w, :] = np.array([255, 255, 255], dtype=np.uint8)
+        # Right eye position shifted by alternating disparity (near/far mix)
+        shift = disparity * (1 if k % 2 == 0 else -1)
+        rx = min(max(cx + shift, 0), half - bar_w)
+        frame[:, half + rx : half + rx + bar_w, :] = np.array([255, 255, 255], dtype=np.uint8)
+
+    # Corner tags so the halves are identifiable without stereo vision.
+    tag_h = max(8, height // 12)
+    frame[:tag_h, :tag_h * 2, :] = np.array([0, 255, 0], dtype=np.uint8)   # L top-left green
+    frame[:tag_h, -tag_h * 2:, :] = np.array([0, 128, 255], dtype=np.uint8)  # R top-right orange
+    return frame
+
+
 class WebRtcVideoSender:
     """PC-side WebRTC peer that sends a video track to the headset."""
 
@@ -165,7 +225,7 @@ class WebRtcVideoSender:
             await self._stop_locked()
             if req.codec != "webrtc":
                 raise ValueError(f"WebRtcVideoSender requires codec=webrtc, got {req.codec!r}")
-            if self._source not in ("test-pattern", "frames"):
+            if self._source not in ("test-pattern", "sbs-test-pattern", "frames"):
                 raise ValueError(f"unsupported WebRTC video source: {self._source!r}")
 
             from aiortc import RTCPeerConnection
@@ -199,7 +259,17 @@ class WebRtcVideoSender:
             try:
                 track = self._create_track(req)
                 self._track = track
-                pc.addTrack(track)
+                # Transceiver + H264 preference: mirrors teleimager's WebRTC path.
+                # pc.addTrack() alone lets the headset answer VP8, whose aiortc
+                # encoder silently produces no frames for wide SBS resolutions.
+                from aiortc import RTCRtpSender
+                transceiver = pc.addTransceiver(track, direction="sendonly")
+                capabilities = RTCRtpSender.getCapabilities("video")
+                h264_codecs = [c for c in capabilities.codecs if c.mimeType == "video/H264"]
+                if h264_codecs:
+                    transceiver.setCodecPreferences(h264_codecs)
+                else:
+                    log.warning("H264 not in capabilities; falling back to auto-negotiation")
                 offer = await pc.createOffer()
                 await pc.setLocalDescription(offer)
                 local = pc.localDescription
@@ -215,6 +285,8 @@ class WebRtcVideoSender:
             if self._frame_source is None:
                 raise RuntimeError("frames video source requires an ExternalVideoFrameSource")
             return ExternalVideoTrack(self._frame_source, req.width, req.height, req.fps)
+        if self._source == "sbs-test-pattern":
+            return SbsTestPatternTrack(req.width, req.height, req.fps)
         return TestPatternTrack(req.width, req.height, req.fps)
 
     async def handle_answer(self, value: Any) -> None:
@@ -225,6 +297,10 @@ class WebRtcVideoSender:
             from aiortc import RTCSessionDescription
 
             desc = _session_description_from_value(value)
+            # Log the video m-line to see which codec the headset actually picked.
+            for line in desc["sdp"].splitlines():
+                if line.startswith("m=video") or "a=rtpmap" in line or "a=fmtp" in line:
+                    log.info("ANSWER-SDP %s", line.strip())
             try:
                 await self._pc.setRemoteDescription(RTCSessionDescription(sdp=desc["sdp"], type=desc["type"]))
             except Exception:

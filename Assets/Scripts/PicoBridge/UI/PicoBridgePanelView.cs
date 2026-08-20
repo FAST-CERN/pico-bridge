@@ -29,5 +29,6 @@ namespace PicoBridge.UI
         public Slider uiOpacitySlider;
         public Button collapseButton;
         public Image collapseButtonIcon;
+        public Button immersiveButton;
     }
 }

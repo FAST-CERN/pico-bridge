@@ -219,7 +219,7 @@ class PicoBridge:
 def _normalize_video_source(video: str | None) -> str | None:
     if video in (None, "", "disabled"):
         return None
-    if video not in ("frames", "test-pattern"):
+    if video not in ("frames", "test-pattern", "sbs-test-pattern"):
         raise ValueError(f"unsupported video source: {video!r}")
     return video
 

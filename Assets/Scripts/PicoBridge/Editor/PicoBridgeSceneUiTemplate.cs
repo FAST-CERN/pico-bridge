@@ -267,6 +267,18 @@ namespace PicoBridge.Editor
             opacityLabel.enableWordWrapping = false;
             AddLayoutElement(opacityLabel.gameObject, 28f, 34f, 0f, 0f);
             view.uiOpacitySlider = CreateOpacitySlider(opacityControl);
+
+            // Stereo immersive FPV entry button (wired by PicoBridgePanelController).
+            var immersiveControl = CreateRow("ImmersiveControl", statusRow, 34f, 8f);
+            AddLayoutElement(immersiveControl.gameObject, -1f, 34f, 1f, 0f);
+            var immersiveBadge = CreateRect("ImmersiveButton", immersiveControl);
+            AddLayoutElement(immersiveBadge.gameObject, 120f, 34f, 0f, 0f);
+            var immersiveImage = AddImage(immersiveBadge.gameObject, new Color(0.10f, 0.35f, 0.22f, 1f));
+            var immersiveBtn = immersiveBadge.gameObject.AddComponent<Button>();
+            immersiveBtn.targetGraphic = immersiveImage;
+            var immersiveLabel = CreateText("Label", immersiveBadge, "沉浸 FPV", 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            immersiveLabel.enableWordWrapping = false;
+            view.immersiveButton = immersiveBtn;
         }
 
         private static void BuildCollapseBadge(RectTransform parent, PicoBridgePanelView view)

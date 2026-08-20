@@ -1,5 +1,6 @@
 using UnityEngine;
 using PicoBridge.Camera;
+using PicoBridge.Immersive;
 using PicoBridge.Network;
 using PicoBridge.Tracking;
 using Unity.XR.PXR;
@@ -43,6 +44,7 @@ namespace PicoBridge
         private PicoTrackingCollector _collector;
 #endif
         private WebRtcCameraReceiver _webRtcCamera;
+        private StereoImmersiveBootstrap _stereoImmersive;
         private float _trackingInterval;
         private float _trackingTimer;
         private bool _autoConnected;
@@ -78,6 +80,9 @@ namespace PicoBridge
 
             // Camera preview
             _webRtcCamera = gameObject.AddComponent<WebRtcCameraReceiver>();
+
+            // Stereo immersive FPV rig (self-assembling, hidden until entered)
+            _stereoImmersive = new GameObject("StereoImmersiveRig").AddComponent<StereoImmersiveBootstrap>();
 
 #if !UNITY_EDITOR
             _collector = new PicoTrackingCollector();
