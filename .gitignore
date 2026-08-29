@@ -76,3 +76,6 @@ pico_bridge_recordings/
 
 # Worktrees
 .worktrees/
+build-e2e.log
+compile-check.log
+Builds/

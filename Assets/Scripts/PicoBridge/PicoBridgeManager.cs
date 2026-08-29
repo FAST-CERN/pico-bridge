@@ -44,6 +44,7 @@ namespace PicoBridge
         private PicoTrackingCollector _collector;
 #endif
         private WebRtcCameraReceiver _webRtcCamera;
+        private WebRtcHttpSignalingClient _teleimagerStream;
         private StereoImmersiveBootstrap _stereoImmersive;
         private float _trackingInterval;
         private float _trackingTimer;
@@ -55,6 +56,7 @@ namespace PicoBridge
         public PicoTcpClient TcpClient => _tcp;
         public UdpDiscovery Discovery => _discovery;
         public WebRtcCameraReceiver WebRtcCamera => _webRtcCamera;
+        public WebRtcHttpSignalingClient TeleimagerStream => _teleimagerStream;
         public bool IsConnected => _tcp != null && _tcp.State == SocketState.Working;
         public bool AllowPcVideoPreview => allowPcVideoPreview;
         public bool AutoRequestPcVideoPreview => autoRequestPcVideoPreview;
@@ -80,6 +82,10 @@ namespace PicoBridge
 
             // Camera preview
             _webRtcCamera = gameObject.AddComponent<WebRtcCameraReceiver>();
+
+            // Direct teleimager stream (HTTP signaling; URL defaults live on
+            // the client so runtime AddComponent picks up code defaults).
+            _teleimagerStream = gameObject.AddComponent<WebRtcHttpSignalingClient>();
 
             // Stereo immersive FPV rig (self-assembling, hidden until entered)
             _stereoImmersive = new GameObject("StereoImmersiveRig").AddComponent<StereoImmersiveBootstrap>();

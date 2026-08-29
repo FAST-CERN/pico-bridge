@@ -1,0 +1,15 @@
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.GeneratedMSBuildEditorConfig.editorconfig
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.AssemblyInfoInputs.cache
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.AssemblyInfo.cs
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.csproj.CoreCompileInputs.cache
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.sourcelink.json
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\bin\Debug\net10.0\SignalingProtocolTests.exe
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\bin\Debug\net10.0\SignalingProtocolTests.deps.json
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\bin\Debug\net10.0\SignalingProtocolTests.runtimeconfig.json
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\bin\Debug\net10.0\SignalingProtocolTests.dll
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\bin\Debug\net10.0\SignalingProtocolTests.pdb
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.dll
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\refint\SignalingProtocolTests.dll
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.pdb
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\SignalingProtocolTests.genruntimeconfig.cache
+F:\Chufan_Rui\teleop\pico-bridge\tools\SignalingProtocolTests\obj\Debug\net10.0\ref\SignalingProtocolTests.dll

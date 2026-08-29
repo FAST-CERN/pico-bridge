@@ -21,6 +21,8 @@ namespace PicoBridge.Immersive
         [SerializeField] private GameObject panelRoot;
         [Tooltip("WebRTC camera receiver supplying the SBS texture (auto-resolved).")]
         [SerializeField] private WebRtcCameraReceiver webRtcCamera;
+        [Tooltip("Direct teleimager stream (HTTP signaling); preferred source when it has frames.")]
+        [SerializeField] private WebRtcHttpSignalingClient teleimagerStream;
         [Tooltip("Hide panel while immersive mode is active.")]
         [SerializeField] private bool hidePanel = true;
         [Tooltip("Grip button that exits immersive mode.")]
@@ -34,6 +36,7 @@ namespace PicoBridge.Immersive
         {
             if (rig == null) rig = GetComponent<StereoImmersiveRig>();
             if (webRtcCamera == null) webRtcCamera = FindObjectOfType<WebRtcCameraReceiver>();
+            if (teleimagerStream == null) teleimagerStream = FindObjectOfType<WebRtcHttpSignalingClient>();
         }
 
         private void Start()
@@ -56,9 +59,12 @@ namespace PicoBridge.Immersive
                 return;
             }
 
-            // Keep the rig fed with the latest WebRTC texture.
-            if (webRtcCamera != null && webRtcCamera.Texture != null)
-                rig.SetVideoTexture(webRtcCamera.Texture);
+            // Keep the rig fed: the direct teleimager stream wins when it has
+            // frames; the PC-push receiver (SBS test pattern or PC camera) is
+            // the fallback.
+            var texture = ResolveVideoTexture();
+            if (texture != null)
+                rig.SetVideoTexture(texture);
         }
 
         /// <summary>Panel button entry point (also usable from code).</summary>
@@ -69,6 +75,17 @@ namespace PicoBridge.Immersive
         public void SetPanelRoot(GameObject root) => panelRoot = root;
 
         public void SetWebRtcCamera(WebRtcCameraReceiver receiver) => webRtcCamera = receiver;
+
+        public void SetTeleimagerStream(WebRtcHttpSignalingClient stream) => teleimagerStream = stream;
+
+        private UnityEngine.Texture ResolveVideoTexture()
+        {
+            if (teleimagerStream != null && teleimagerStream.HasVideoSignal)
+                return teleimagerStream.Texture;
+            if (webRtcCamera != null)
+                return webRtcCamera.Texture;
+            return null;
+        }
 
         private void SetImmersive(bool active)
         {
@@ -82,11 +99,21 @@ namespace PicoBridge.Immersive
 
             if (active)
             {
-                var tex = webRtcCamera != null ? webRtcCamera.Texture : null;
+                // Direct stream: one HTTP POST handshake per entry (the
+                // server builds a fresh peer connection per POST).
+                if (teleimagerStream != null && teleimagerStream.IsConfigured)
+                    teleimagerStream.StartStream();
+
+                var tex = ResolveVideoTexture();
                 var cam = UnityEngine.Camera.main;
                 Debug.Log($"[StereoImmersive] enter: tex={tex} ({(tex != null ? tex.width + "x" + tex.height : "null")}) " +
                           $"cam={cam} quadActive={transform.GetChild(0).gameObject.activeSelf} " +
                           $"pos={transform.GetChild(0).position} scale={transform.GetChild(0).lossyScale}");
+            }
+            else
+            {
+                if (teleimagerStream != null)
+                    teleimagerStream.StopStream();
             }
         }
     }

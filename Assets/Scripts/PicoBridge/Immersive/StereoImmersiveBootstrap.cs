@@ -54,6 +54,9 @@ namespace PicoBridge.Immersive
             var receiver = FindObjectOfType<WebRtcCameraReceiver>();
             if (receiver != null)
                 controller.SetWebRtcCamera(receiver);
+            var teleimager = FindObjectOfType<WebRtcHttpSignalingClient>();
+            if (teleimager != null)
+                controller.SetTeleimagerStream(teleimager);
 
             // Hide the panel canvas while immersive (panel prefab name from template).
             var panel = GameObject.Find(panelRootName);
