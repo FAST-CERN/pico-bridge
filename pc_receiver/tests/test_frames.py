@@ -83,3 +83,81 @@ def test_pico_frame_defaults_non_finite_integer_fields():
     frame = PicoFrame.from_tracking_payload({"timeStampNs": float("inf")}, seq=1, receive_time_s=2.0)
 
     assert frame.timestamp_ns == 0
+
+
+def test_pico_frame_parses_motion_trackers_left_right():
+    payload = {
+        "Motion": {
+            "poseSpace": "pico_tracker_local",
+            "left": {"sn": 12345678901, "p": "0.1,0.2,0.3,0,0,0,1", "valid": 1},
+            "right": {"sn": 98765432109, "p": "0.4,0.5,0.6,0.1,0.2,0.3,0.9", "valid": 0},
+        },
+        "timeStampNs": 77,
+    }
+
+    frame = PicoFrame.from_tracking_payload(payload, seq=1, receive_time_s=2.0)
+
+    assert frame.trackers.active is True
+    assert frame.trackers.left is not None
+    assert frame.trackers.left.sn == 12345678901
+    assert frame.trackers.left.valid is True
+    np.testing.assert_allclose(frame.trackers.left.pose.position, [0.1, 0.2, 0.3])
+    np.testing.assert_allclose(frame.trackers.left.pose.rotation, [0, 0, 0, 1])
+    assert frame.trackers.right is not None
+    assert frame.trackers.right.sn == 98765432109
+    assert frame.trackers.right.valid is False
+    np.testing.assert_allclose(frame.trackers.right.pose.position, [0.4, 0.5, 0.6])
+    np.testing.assert_allclose(frame.trackers.right.pose.rotation, [0.1, 0.2, 0.3, 0.9])
+
+
+def test_pico_frame_without_motion_field_yields_inactive_trackers():
+    frame = PicoFrame.from_tracking_payload({"timeStampNs": 1}, seq=1, receive_time_s=2.0)
+
+    assert frame.trackers.active is False
+    assert frame.trackers.left is None
+    assert frame.trackers.right is None
+
+
+def test_pico_frame_tolerates_motion_placeholder_and_malformed_entries():
+    legacy = PicoFrame.from_tracking_payload(
+        {"Motion": {"joints": [], "len": 0}, "timeStampNs": 1}, seq=1, receive_time_s=2.0
+    )
+    assert legacy.trackers.active is False
+    assert legacy.trackers.left is None
+    assert legacy.trackers.right is None
+
+    malformed = PicoFrame.from_tracking_payload(
+        {
+            "Motion": {
+                "left": {"sn": "abc", "p": "not,seven"},
+                "right": 42,
+            },
+            "timeStampNs": 1,
+        },
+        seq=1,
+        receive_time_s=2.0,
+    )
+    assert malformed.trackers.left is not None
+    assert malformed.trackers.left.sn == 0
+    assert malformed.trackers.left.pose is None
+    assert malformed.trackers.left.valid is False
+    assert malformed.trackers.right is None
+    assert malformed.trackers.active is True
+
+
+def test_pico_frame_motion_side_present_without_pose_keeps_state():
+    frame = PicoFrame.from_tracking_payload(
+        {
+            "Motion": {
+                "left": {"sn": 5, "valid": True},
+                "right": {"sn": 6, "p": "1,2,3,0,0,0,1", "valid": "false"},
+            },
+            "timeStampNs": 1,
+        },
+        seq=1,
+        receive_time_s=2.0,
+    )
+
+    assert frame.trackers.left.pose is None
+    assert frame.trackers.left.valid is True
+    assert frame.trackers.right.valid is False

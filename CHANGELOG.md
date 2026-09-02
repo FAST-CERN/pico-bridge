@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2] - 2026-09-02
+
+### Added
+
+- `PicoFrame.trackers` (`MotionFrame`): parses the `Motion` field sent by the
+  PICO bridge app (motion trackers bound to left/right). Exposes per-side
+  `TrackerState` (SN, pose, PICO validity flag). Recording/replay carries the
+  field verbatim. Old apps without `Motion` yield an inactive frame.
+
 ## [0.2.1] - 2026-05-22
 
 - Added head-gaze UI following for the headset panel.

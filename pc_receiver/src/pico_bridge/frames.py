@@ -142,6 +142,22 @@ class ControllerState:
 
 
 @dataclass(frozen=True)
+class TrackerState:
+    """One motion tracker bound to a body side: SN, pose, and PICO validity."""
+
+    sn: int
+    pose: Pose | None
+    valid: bool
+
+
+@dataclass(frozen=True)
+class MotionFrame:
+    active: bool
+    left: TrackerState | None
+    right: TrackerState | None
+
+
+@dataclass(frozen=True)
 class ControllersFrame:
     left: ControllerState
     right: ControllerState
@@ -160,6 +176,7 @@ class PicoFrame:
     left_hand: HandFrame
     right_hand: HandFrame
     controllers: ControllersFrame
+    trackers: MotionFrame
     raw: dict[str, Any]
 
     @classmethod
@@ -182,6 +199,7 @@ class PicoFrame:
             left_hand=_parse_hand(_dict_or_empty(payload.get("Hand", {})).get("leftHand", {})),
             right_hand=_parse_hand(_dict_or_empty(payload.get("Hand", {})).get("rightHand", {})),
             controllers=_parse_controllers(payload.get("Controller", {})),
+            trackers=_parse_motion(payload.get("Motion", {})),
             raw=payload,
         )
 
@@ -273,6 +291,23 @@ def _parse_controllers(value: Any) -> ControllersFrame:
     return ControllersFrame(
         left=_parse_controller(controller.get("left", {})),
         right=_parse_controller(controller.get("right", {})),
+    )
+
+
+def _parse_motion(value: Any) -> MotionFrame:
+    motion = value if isinstance(value, dict) else {}
+    left = _parse_tracker(motion.get("left"))
+    right = _parse_tracker(motion.get("right"))
+    return MotionFrame(active=left is not None or right is not None, left=left, right=right)
+
+
+def _parse_tracker(value: Any) -> TrackerState | None:
+    if not isinstance(value, dict):
+        return None
+    return TrackerState(
+        sn=_int_or_default(value.get("sn"), 0),
+        pose=_parse_pose(value.get("p")),
+        valid=_bool_or_default(value.get("valid"), False),
     )
 
 
