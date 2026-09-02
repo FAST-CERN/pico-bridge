@@ -1,6 +1,8 @@
+using System;
 using PicoBridge.Network;
 using PicoBridge.Tracking;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace PicoBridge.UI
 {
@@ -59,11 +61,15 @@ namespace PicoBridge.UI
             ConfigureCollapseControl();
             ApplyCollapseState();
             ConfigureImmersiveControl();
+            ConfigureServerUrlControl();
+            ConfigureResolutionControl();
         }
 
         private void Start()
         {
             EnableAutomaticTrackingStreams();
+            InitializeServerUrlField();
+            InitializeResolutionButtons();
             RefreshAll();
         }
 
@@ -90,6 +96,12 @@ namespace PicoBridge.UI
                 view.collapseButton.onClick.RemoveListener(ToggleCollapsed);
             if (view != null && view.immersiveButton != null)
                 view.immersiveButton.onClick.RemoveListener(EnterImmersiveMode);
+            if (view != null && view.applyUrlButton != null)
+                view.applyUrlButton.onClick.RemoveListener(ApplyServerUrl);
+            if (view != null && view.resolution720Button != null)
+                view.resolution720Button.onClick.RemoveListener(SelectResolution720);
+            if (view != null && view.resolution1080Button != null)
+                view.resolution1080Button.onClick.RemoveListener(SelectResolution1080);
         }
 
         private void ConfigureImmersiveControl()
@@ -99,6 +111,129 @@ namespace PicoBridge.UI
 
             view.immersiveButton.onClick.RemoveListener(EnterImmersiveMode);
             view.immersiveButton.onClick.AddListener(EnterImmersiveMode);
+        }
+
+        private void ConfigureServerUrlControl()
+        {
+            if (view == null || view.applyUrlButton == null)
+                return;
+
+            view.applyUrlButton.onClick.RemoveListener(ApplyServerUrl);
+            view.applyUrlButton.onClick.AddListener(ApplyServerUrl);
+        }
+
+        private void ConfigureResolutionControl()
+        {
+            if (view == null)
+                return;
+            if (view.resolution720Button != null)
+            {
+                view.resolution720Button.onClick.RemoveListener(SelectResolution720);
+                view.resolution720Button.onClick.AddListener(SelectResolution720);
+            }
+            if (view.resolution1080Button != null)
+            {
+                view.resolution1080Button.onClick.RemoveListener(SelectResolution1080);
+                view.resolution1080Button.onClick.AddListener(SelectResolution1080);
+            }
+        }
+
+        // Start-time reflection of the persisted choice (after every Awake).
+        private void InitializeResolutionButtons()
+        {
+            var client = manager != null ? manager.TeleimagerStream : null;
+            if (client != null)
+                RefreshResolutionButtonStates(client.StreamResolution);
+        }
+
+        private void SelectResolution720() => SelectResolution("720p");
+
+        private void SelectResolution1080() => SelectResolution("1080p");
+
+        private void SelectResolution(string value)
+        {
+            var client = manager != null ? manager.TeleimagerStream : null;
+            if (client == null || !client.SetStreamResolution(value))
+                return;
+
+            RefreshResolutionButtonStates(client.StreamResolution);
+            Debug.Log($"[PicoBridge] Stream resolution set to {client.StreamResolution}");
+            if (client.IsActive)
+            {
+                client.StopStream();
+                client.StartStream();
+            }
+        }
+
+        private void RefreshResolutionButtonStates(string current)
+        {
+            if (view == null)
+                return;
+            SetPillSelected(view.resolution720Button, current == "720p");
+            SetPillSelected(view.resolution1080Button, current == "1080p");
+        }
+
+        private static readonly Color PillSelectedColor = new Color(0.10f, 0.35f, 0.22f, 1f);
+        private static readonly Color PillIdleColor = new Color(0.16f, 0.19f, 0.205f, 1f);
+
+        private static void SetPillSelected(Button button, bool selected)
+        {
+            if (button == null)
+                return;
+            if (button.targetGraphic is Image image)
+                image.color = selected ? PillSelectedColor : PillIdleColor;
+        }
+
+        // Start-time fill (after every Awake, so the manager's runtime-added
+        // client exists): shows the persisted endpoint as editable
+        // 192.168.<A>.<B> octets.
+        private void InitializeServerUrlField()
+        {
+            var client = manager != null ? manager.TeleimagerStream : null;
+            if (view == null || client == null)
+                return;
+
+            var host = client.ServerUrl;
+            var scheme = host.IndexOf("://", StringComparison.Ordinal);
+            if (scheme >= 0)
+                host = host.Substring(scheme + 3);
+            var port = host.IndexOf(':');
+            if (port >= 0)
+                host = host.Substring(0, port);
+            var parts = host.Split('.');
+            if (parts.Length != 4)
+                return;
+            if (view.urlOctetAInput != null && string.IsNullOrEmpty(view.urlOctetAInput.text))
+                view.urlOctetAInput.text = parts[2];
+            if (view.urlOctetBInput != null && string.IsNullOrEmpty(view.urlOctetBInput.text))
+                view.urlOctetBInput.text = parts[3];
+        }
+
+        private void ApplyServerUrl()
+        {
+            var client = manager != null ? manager.TeleimagerStream : null;
+            if (client == null || view == null ||
+                view.urlOctetAInput == null || view.urlOctetBInput == null)
+                return;
+
+            if (!byte.TryParse(view.urlOctetAInput.text.Trim(), out var octetA) ||
+                !byte.TryParse(view.urlOctetBInput.text.Trim(), out var octetB))
+            {
+                Debug.LogWarning("[PicoBridge] Server address ignored: both octet boxes need a 0-255 number");
+                return;
+            }
+
+            if (!client.SetServerUrl($"https://192.168.{octetA}.{octetB}:60001/offer"))
+            {
+                Debug.LogWarning("[PicoBridge] Server URL rejected by the client");
+                return;
+            }
+            Debug.Log($"[PicoBridge] Server URL set to {client.ServerUrl}");
+            if (client.IsActive)
+            {
+                client.StopStream();
+                client.StartStream();
+            }
         }
 
         private void EnterImmersiveMode()

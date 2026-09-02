@@ -30,5 +30,14 @@ namespace PicoBridge.UI
         public Button collapseButton;
         public Image collapseButtonIcon;
         public Button immersiveButton;
+
+        [Header("Server URL")]
+        public TMP_InputField urlOctetAInput;
+        public TMP_InputField urlOctetBInput;
+        public Button applyUrlButton;
+
+        [Header("Stream Resolution")]
+        public Button resolution720Button;
+        public Button resolution1080Button;
     }
 }

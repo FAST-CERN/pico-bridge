@@ -23,6 +23,8 @@ namespace PicoBridge.Immersive
         [SerializeField] private WebRtcCameraReceiver webRtcCamera;
         [Tooltip("Direct teleimager stream (HTTP signaling); preferred source when it has frames.")]
         [SerializeField] private WebRtcHttpSignalingClient teleimagerStream;
+        [Tooltip("Spinner overlay shown while no video texture has arrived (built by the bootstrap).")]
+        [SerializeField] private StereoImmersiveLoadingSpinner loadingSpinner;
         [Tooltip("Hide panel while immersive mode is active.")]
         [SerializeField] private bool hidePanel = true;
         [Tooltip("Grip button that exits immersive mode.")]
@@ -61,10 +63,13 @@ namespace PicoBridge.Immersive
 
             // Keep the rig fed: the direct teleimager stream wins when it has
             // frames; the PC-push receiver (SBS test pattern or PC camera) is
-            // the fallback.
+            // the fallback. Until any texture exists the loading spinner
+            // spins in front of the screen.
             var texture = ResolveVideoTexture();
             if (texture != null)
                 rig.SetVideoTexture(texture);
+            if (loadingSpinner != null)
+                loadingSpinner.Visible = texture == null;
         }
 
         /// <summary>Panel button entry point (also usable from code).</summary>
@@ -77,6 +82,8 @@ namespace PicoBridge.Immersive
         public void SetWebRtcCamera(WebRtcCameraReceiver receiver) => webRtcCamera = receiver;
 
         public void SetTeleimagerStream(WebRtcHttpSignalingClient stream) => teleimagerStream = stream;
+
+        public void SetLoadingSpinner(StereoImmersiveLoadingSpinner spinner) => loadingSpinner = spinner;
 
         private UnityEngine.Texture ResolveVideoTexture()
         {
@@ -96,6 +103,9 @@ namespace PicoBridge.Immersive
 
             if (hidePanel && panelRoot != null)
                 panelRoot.SetActive(!active);
+
+            if (loadingSpinner != null)
+                loadingSpinner.Visible = false;
 
             if (active)
             {

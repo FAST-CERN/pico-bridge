@@ -21,6 +21,8 @@ namespace PicoBridge.Camera
         [SerializeField] private string url = DefaultUrl;
         [Tooltip("Codec hint sent in the POST body (\"h264\" or \"vp8\"); null lets the server use its config.")]
         [SerializeField] private string codec = "h264";
+        [Tooltip("Resolution hint sent in the POST body (\"720p\"/\"1080p\"); advisory until the server-side switch lands.")]
+        [SerializeField] private string resolution = "1080p";
 
         private RTCPeerConnection _peer;
         private VideoStreamTrack _videoTrack;
@@ -42,7 +44,13 @@ namespace PicoBridge.Camera
         private static bool _offerSdpLogged;
         private static bool _answerSdpLogged;
 
-        public const string DefaultUrl = "https://192.168.10.13:60001/offer";
+        public const string DefaultUrl = "https://192.168.5.5:60001/offer";
+
+        /// <summary>PlayerPrefs key persisting the user-entered /offer endpoint
+        /// (sbs-1080p map t06): the serialized default only seeds a fresh
+        /// install, so robot network changes no longer need an APK rebuild.</summary>
+        private const string UrlPrefKey = "pico_bridge.teleimager_url";
+        private const string ResolutionPrefKey = "pico_bridge.teleimager_resolution";
 
         public Texture Texture => _texture;
         public string Status => _status;
@@ -51,6 +59,41 @@ namespace PicoBridge.Camera
         public bool IsActive => _peer != null || _connectCoroutine != null;
         public bool HasVideoSignal => _texture != null && _frameCount > 0;
         public bool IsConfigured => !string.IsNullOrEmpty(url) && url.StartsWith("http", StringComparison.Ordinal);
+
+        public string ServerUrl => url;
+        public string StreamResolution => resolution;
+
+        private void Awake()
+        {
+            url = PlayerPrefs.GetString(UrlPrefKey, url);
+            resolution = PlayerPrefs.GetString(ResolutionPrefKey, resolution);
+        }
+
+        /// <summary>Apply and persist a new /offer endpoint. Returns false for
+        /// values that do not look like an http(s) URL (state left unchanged).</summary>
+        public bool SetServerUrl(string value)
+        {
+            value = (value ?? string.Empty).Trim();
+            if (!value.StartsWith("http", StringComparison.Ordinal))
+                return false;
+            url = value;
+            PlayerPrefs.SetString(UrlPrefKey, value);
+            PlayerPrefs.Save();
+            return true;
+        }
+
+        /// <summary>Apply and persist the resolution hint ("720p"/"1080p").
+        /// Takes effect on the next StartStream.</summary>
+        public bool SetStreamResolution(string value)
+        {
+            value = (value ?? string.Empty).Trim().ToLowerInvariant();
+            if (value != "720p" && value != "1080p")
+                return false;
+            resolution = value;
+            PlayerPrefs.SetString(ResolutionPrefKey, value);
+            PlayerPrefs.Save();
+            return true;
+        }
 
         public bool ShouldRetry
         {
@@ -193,7 +236,9 @@ namespace PicoBridge.Camera
             }
 
             _status = "POST /offer";
-            string body = WebRtcSignalingProtocol.BuildOfferRequestBody(patched, string.IsNullOrEmpty(codec) ? null : codec);
+            string body = WebRtcSignalingProtocol.BuildOfferRequestBody(
+                patched, string.IsNullOrEmpty(codec) ? null : codec,
+                string.IsNullOrEmpty(resolution) ? null : resolution);
             using (var request = new UnityWebRequest(url, "POST"))
             {
                 request.timeout = 10;

@@ -248,7 +248,7 @@ namespace PicoBridge.Editor
             AddOutline(footerImage, StrokeColor, new Vector2(1.5f, -1.5f));
             var footerLayout = footer.GetComponent<VerticalLayoutGroup>();
             footerLayout.padding = new RectOffset(12, 12, 10, 10);
-            AddLayoutElement(footer.gameObject, -1f, 132f, 0f, 0f);
+            AddLayoutElement(footer.gameObject, -1f, 220f, 0f, 0f);
 
             var tracking = CreateRow("TrackingSignals", footer, 50f, 8f);
             view.trackingSignalImages = new Image[TrackingSignalLabels.Length];
@@ -272,13 +272,94 @@ namespace PicoBridge.Editor
             var immersiveControl = CreateRow("ImmersiveControl", statusRow, 34f, 8f);
             AddLayoutElement(immersiveControl.gameObject, -1f, 34f, 1f, 0f);
             var immersiveBadge = CreateRect("ImmersiveButton", immersiveControl);
-            AddLayoutElement(immersiveBadge.gameObject, 120f, 34f, 0f, 0f);
+            AddLayoutElement(immersiveBadge.gameObject, 150f, 34f, 0f, 0f);
             var immersiveImage = AddImage(immersiveBadge.gameObject, new Color(0.10f, 0.35f, 0.22f, 1f));
             var immersiveBtn = immersiveBadge.gameObject.AddComponent<Button>();
             immersiveBtn.targetGraphic = immersiveImage;
-            var immersiveLabel = CreateText("Label", immersiveBadge, "沉浸 FPV", 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var immersiveLabel = CreateText("Label", immersiveBadge, "Immersive FPV", 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             immersiveLabel.enableWordWrapping = false;
             view.immersiveButton = immersiveBtn;
+
+            // Editable /offer endpoint (sbs-1080p map t06): the APK survives
+            // robot network changes without an IL2CPP patch. Only the last
+            // two 192.168.<A>.<B> octets are editable; the controller assembles
+            // the full URL. Wired by PicoBridgePanelController; persisted by
+            // the signaling client.
+            var urlRow = CreateRow("ServerUrlControl", footer, 42f, 12f);
+            var urlLabel = CreateText("Label", urlRow, "Server", 16, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            urlLabel.enableWordWrapping = false;
+            AddLayoutElement(urlLabel.gameObject, 72f, 34f, 0f, 0f);
+
+            var urlPrefix = CreateText("Prefix", urlRow, "192.168.", 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            urlPrefix.enableWordWrapping = false;
+            AddLayoutElement(urlPrefix.gameObject, 96f, 34f, 0f, 0f);
+
+            view.urlOctetAInput = CreateOctetInput(urlRow, "OctetA");
+
+            var octetDot = CreateText("Dot", urlRow, ".", 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            octetDot.enableWordWrapping = false;
+            AddLayoutElement(octetDot.gameObject, 10f, 34f, 0f, 0f);
+
+            view.urlOctetBInput = CreateOctetInput(urlRow, "OctetB");
+
+            view.applyUrlButton = CreatePillButton(urlRow, "ApplyUrlButton", "Connect", 110f);
+
+            // Stream resolution request (720p/1080p) — sent with the offer
+            // body; advisory until the server-side switch lands (sbs-1080p
+            // map negotiation ticket). Selection state is colored at runtime
+            // by PicoBridgePanelController.
+            var resRow = CreateRow("ResolutionControl", footer, 42f, 12f);
+            var resLabel = CreateText("Label", resRow, "Resolution", 16, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            resLabel.enableWordWrapping = false;
+            AddLayoutElement(resLabel.gameObject, 110f, 34f, 0f, 0f);
+            view.resolution720Button = CreatePillButton(resRow, "Res720Button", "720p", 96f);
+            view.resolution1080Button = CreatePillButton(resRow, "Res1080Button", "1080p", 96f);
+        }
+
+        private static Button CreatePillButton(RectTransform parent, string name, string label, float width)
+        {
+            var badge = CreateRect(name, parent);
+            AddLayoutElement(badge.gameObject, width, 34f, 0f, 0f);
+            var image = AddImage(badge.gameObject, new Color(0.10f, 0.35f, 0.22f, 1f));
+            var button = badge.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            var text = CreateText("Label", badge, label, 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            text.enableWordWrapping = false;
+            return button;
+        }
+
+        private static TMP_InputField CreateOctetInput(RectTransform parent, string name)
+        {
+            var fieldRect = CreateRect(name, parent);
+            AddLayoutElement(fieldRect.gameObject, 64f, 38f, 0f, 0f);
+            var fieldImage = AddImage(fieldRect.gameObject, SignalInactiveColor);
+            AddOutline(fieldImage, StrokeColor, new Vector2(1f, -1f));
+
+            var input = fieldRect.gameObject.AddComponent<TMP_InputField>();
+            input.targetGraphic = fieldImage;
+            input.transition = Selectable.Transition.ColorTint;
+            input.colors = CreateControlColors();
+            input.shouldHideMobileInput = false; // keep the Pico system keyboard visible
+            input.contentType = TMP_InputField.ContentType.IntegerNumber;
+            input.characterLimit = 3;
+
+            var viewport = CreateRect("Text Area", fieldRect);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            SetStretch(viewport, 4f);
+
+            var placeholder = CreateText("Placeholder", viewport, "0", 18, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            placeholder.enableWordWrapping = false;
+            placeholder.raycastTarget = false;
+
+            var text = CreateText("Text", viewport, string.Empty, 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            text.enableWordWrapping = false;
+            text.raycastTarget = false;
+
+            input.textViewport = viewport;
+            input.textComponent = text;
+            input.placeholder = placeholder;
+            input.lineType = TMP_InputField.LineType.SingleLine;
+            return input;
         }
 
         private static void BuildCollapseBadge(RectTransform parent, PicoBridgePanelView view)

@@ -53,15 +53,19 @@ namespace PicoBridge.Camera
         }
 
         /// <summary>
-        /// POST /offer request body: {"sdp":...,"type":"offer","codec":...}.
-        /// aiohttp's request.json() requires a JSON body; a null codec makes
-        /// the server fall back to its webrtc_codec config.
+        /// POST /offer request body: {"sdp":...,"type":"offer","codec":...,
+        /// "resolution":...}. aiohttp's request.json() requires a JSON body;
+        /// a null codec makes the server fall back to its webrtc_codec config.
+        /// The resolution hint ("720p"/"1080p") is advisory — servers that
+        /// don't know the field ignore it (sbs-1080p map: the server-side
+        /// switch lands with the negotiation ticket).
         /// </summary>
-        public static string BuildOfferRequestBody(string sdp, string codec)
+        public static string BuildOfferRequestBody(string sdp, string codec, string resolution = null)
         {
             return "{\"sdp\":" + QuoteJson(sdp) +
                    ",\"type\":\"offer\"" +
-                   ",\"codec\":" + (codec == null ? "null" : QuoteJson(codec)) + "}";
+                   ",\"codec\":" + (codec == null ? "null" : QuoteJson(codec)) +
+                   ",\"resolution\":" + (resolution == null ? "null" : QuoteJson(resolution)) + "}";
         }
 
         /// <summary>
