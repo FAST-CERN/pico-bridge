@@ -12,7 +12,8 @@ namespace PicoBridge.Tracking
     {
         private const int HandJointCount = 26;
         private const int BodyJointCount = 24;
-        private const int MotionJointCount = 3;
+        private const long MockLeftSn = 12345678901;
+        private const long MockRightSn = 98765432109;
 
         public static string GenerateJson(float time)
         {
@@ -199,25 +200,27 @@ namespace PicoBridge.Tracking
             sb.Append($"],\"len\":{BodyJointCount}}}");
         }
 
+        // Wire parity with PicoTrackingCollector.AppendMotion: side-first
+        // Motion.left/right {sn, p, valid} under poseSpace
+        // pico_tracker_local (mocap map t04 contract). Two bobbing wrists.
         private static void AppendMotion(StringBuilder sb, float time, Vector3 rootOffset)
         {
-            sb.Append(",\"Motion\":{\"joints\":[");
+            sb.Append(",\"Motion\":{\"poseSpace\":\"pico_tracker_local\"");
+            sb.Append(',');
+            AppendMockTracker(sb, "left", MockLeftSn, time, rootOffset, +1f);
+            sb.Append(',');
+            AppendMockTracker(sb, "right", MockRightSn, time + 0.7f, rootOffset, -1f);
+            sb.Append('}');
+        }
 
-            for (int i = 0; i < MotionJointCount; i++)
-            {
-                if (i > 0)
-                    sb.Append(',');
-
-                float angle = time + i * 2.1f;
-                float x = -0.45f + i * 0.45f;
-                float y = 0.72f + Mathf.Sin(angle) * 0.08f;
-                float z = -0.62f + Mathf.Cos(angle) * 0.05f;
-                sb.Append($"{{\"id\":{i},\"p\":\"");
-                AppendPose(sb, rootOffset.x + x, rootOffset.y + y, rootOffset.z + z, 0f, 0f, 0f, 1f);
-                sb.Append($"\",\"t\":{i},\"va\":\"0,0,0,0,0,0\",\"wva\":\"0,0,0,0,0,0\"}}");
-            }
-
-            sb.Append($"],\"len\":{MotionJointCount}}}");
+        private static void AppendMockTracker(StringBuilder sb, string side, long sn, float time, Vector3 rootOffset, float sideSign)
+        {
+            float x = sideSign * 0.45f + Mathf.Sin(time * 0.9f) * 0.05f;
+            float y = 0.72f + Mathf.Sin(time * 1.3f) * 0.06f;
+            float z = -0.62f + Mathf.Cos(time * 1.1f) * 0.05f;
+            sb.Append($"\"{side}\":{{\"sn\":{sn},\"p\":\"");
+            AppendPose(sb, rootOffset.x + x, rootOffset.y + y, rootOffset.z + z, 0f, 0f, 0f, 1f);
+            sb.Append("\",\"valid\":true}");
         }
 
         private static void AppendPose(StringBuilder sb, float x, float y, float z, float qx, float qy, float qz, float qw)

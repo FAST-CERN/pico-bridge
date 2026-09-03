@@ -268,12 +268,38 @@ namespace PicoBridge.Tracking
 
         // ── Motion Trackers ───────────────────────────────
 
+        // Wire contract (receiver 0.2.2, mocap map t04): side-first
+        // Motion.left/right, each {"sn":<long>,"p":"x,y,z,qx,qy,qz,qw",
+        // "valid":<bool>}. An unbound or disconnected side is omitted
+        // entirely so the receiver reports it inactive. Poses ride the same
+        // PICO-native-local -> Unity flip as AppendBody (-Z, -Qz, -Qw) under
+        // poseSpace "pico_tracker_local" (t01 §4); downstream transform
+        // (_INPUT_TO_TELEOPIT_MATRIX chain) is unchanged.
         private void AppendMotion()
         {
-            _sb.Append(",\"Motion\":{\"joints\":[");
-            // Motion tracker enumeration requires runtime tracker IDs
-            // Placeholder - will be populated when trackers are connected.
-            _sb.Append("],\"len\":0}");
+            MotionTrackerBinding.EnsureStarted();
+
+            _sb.Append(",\"Motion\":{\"poseSpace\":\"pico_tracker_local\"");
+            AppendTrackerSide("left");
+            AppendTrackerSide("right");
+            _sb.Append('}');
+        }
+
+        private void AppendTrackerSide(string side)
+        {
+            if (!MotionTrackerBinding.TryGetConnectedSn(side, out long sn))
+                return;
+
+            MotionTrackerLocation location = default;
+            bool isValidPose = false;
+            if (PXR_MotionTracking.GetMotionTrackerLocation(sn, ref location, ref isValidPose) != 0)
+                return;
+
+            var p = location.pose.Position;
+            var q = location.pose.Orientation;
+            _sb.Append($",\"{side}\":{{\"sn\":{sn},\"p\":\"");
+            AppendPose(p.x, p.y, -p.z, q.x, q.y, -q.z, -q.w);
+            _sb.Append($"\",\"valid\":{BoolStr(isValidPose)}}}");
         }
 
         // ── helpers ───────────────────────────────────────

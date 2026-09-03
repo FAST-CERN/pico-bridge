@@ -8,6 +8,8 @@ CONTROL_FUNCTION_NAME = "BridgeControl"
 CONTROL_VERSION = 1
 CONTROL_CHANNEL_VIDEO = "video"
 CONTROL_TYPE_SET_POLICY = "set_policy"
+CONTROL_CHANNEL_TRACKING = "tracking"
+CONTROL_TYPE_SET_MOTION = "set_motion"
 
 
 def build_control_message(channel: str, message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -27,3 +29,12 @@ def build_video_policy_message(*, enabled: bool, source: str | None) -> dict[str
     if source is not None:
         payload["source"] = source
     return build_control_message(CONTROL_CHANNEL_VIDEO, CONTROL_TYPE_SET_POLICY, payload)
+
+
+def build_motion_stream_message(*, enabled: bool) -> dict[str, Any]:
+    """Toggle device-side motion-tracker streaming (mocap map t03)."""
+    return build_control_message(
+        CONTROL_CHANNEL_TRACKING,
+        CONTROL_TYPE_SET_MOTION,
+        {"enabled": bool(enabled)},
+    )

@@ -250,12 +250,22 @@ namespace PicoBridge
         {
             string channel = ExtractString(json, "channel");
             string type = ExtractString(json, "type");
-            if (channel != "video" || type != "set_policy")
+            if (channel == "video" && type == "set_policy")
+            {
+                bool enabled = ExtractBool(json, "enabled") ?? false;
+                bool autoPreview = ExtractBool(json, "auto_preview") ?? enabled;
+                ApplyVideoPolicy(enabled, autoPreview);
                 return;
+            }
 
-            bool enabled = ExtractBool(json, "enabled") ?? false;
-            bool autoPreview = ExtractBool(json, "auto_preview") ?? enabled;
-            ApplyVideoPolicy(enabled, autoPreview);
+            // Motion tracker streaming toggle (mocap map t03): panel button is
+            // deferred, so the PC side flips it over the existing
+            // BridgeControl channel. Default stays off (sendBody style).
+            if (channel == "tracking" && type == "set_motion")
+            {
+                sendMotion = ExtractBool(json, "enabled") ?? false;
+                Debug.Log($"[PicoBridge] BridgeControl: sendMotion={sendMotion}");
+            }
         }
 
         private void ApplyVideoPolicy(bool enabled, bool autoPreview)

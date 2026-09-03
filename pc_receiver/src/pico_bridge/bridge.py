@@ -47,6 +47,7 @@ class PicoBridge:
         advertise_ip: str | None = None,
         video: VideoSource | str | None = None,
         video_enabled: bool | None = None,
+        motion_enabled: bool = False,
         print_tracking: bool = False,
         history_size: int = 120,
         start_timeout: float = 10.0,
@@ -58,6 +59,7 @@ class PicoBridge:
         self.advertise_ip = advertise_ip
         self.video = _normalize_video_source(video)
         self.video_enabled = self.video is not None if video_enabled is None else bool(video_enabled)
+        self.motion_enabled = bool(motion_enabled)
         if self.video_enabled and self.video is None:
             raise ValueError("video_enabled=True requires video='frames' or video='test-pattern'")
         self.print_tracking = print_tracking
@@ -159,6 +161,23 @@ class PicoBridge:
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         future.result()
 
+    def set_motion_enabled(self, enabled: bool) -> None:
+        """Toggle device-side motion-tracker streaming via BridgeControl."""
+        self.motion_enabled = bool(enabled)
+
+        runtime = self._runtime
+        loop = self._loop
+        if runtime is None or loop is None or not loop.is_running():
+            return
+
+        coro = runtime.set_motion_enabled(enabled)
+        if self._thread is threading.current_thread():
+            loop.create_task(coro)
+            return
+
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.result()
+
     def stats(self) -> PicoBridgeStats:
         frame_stats = self._frame_store.stats()
         runtime = self._runtime
@@ -188,6 +207,7 @@ class PicoBridge:
             video=self.video,
             video_enabled=self.video_enabled,
             video_frame_source=self._video_frame_source,
+            motion_enabled=self.motion_enabled,
             frame_store=self._frame_store,
             print_tracking=self.print_tracking,
             on_raw_tracking=self._on_raw_tracking,

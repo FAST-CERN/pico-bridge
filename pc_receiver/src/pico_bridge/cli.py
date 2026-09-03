@@ -92,6 +92,7 @@ async def _run(args: argparse.Namespace) -> None:
         advertise_ip=args.advertise_ip,
         video=sdk_video,
         video_enabled=sdk_video_enabled,
+        motion_enabled=args.motion_trackers,
         print_tracking=args.print_tracking,
         on_raw_tracking=_build_raw_tracking_callback(viz_enabled=viz_enabled, recorder=recorder),
     )
@@ -301,6 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-discovery",
         action="store_true",
         help="Disable UDP broadcast discovery",
+    )
+    parser.add_argument(
+        "--motion-trackers",
+        action="store_true",
+        help="Ask the device to stream motion-tracker poses (BridgeControl tracking/set_motion)",
     )
     parser.add_argument(
         "--record",

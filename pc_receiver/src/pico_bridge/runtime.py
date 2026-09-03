@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from .camera_request import CameraRequest
-from .control import CONTROL_FUNCTION_NAME, build_video_policy_message
+from .control import CONTROL_FUNCTION_NAME, build_motion_stream_message, build_video_policy_message
 from .discovery import UdpBroadcaster
 from .frame_store import FrameStore
 from .tcp_server import PicoBridgeServer
@@ -41,6 +41,7 @@ class PicoBridgeRuntime:
         video: str | None,
         video_enabled: bool,
         video_frame_source: ExternalVideoFrameSource | None,
+        motion_enabled: bool = False,
         frame_store: FrameStore,
         print_tracking: bool = False,
         on_raw_tracking: RawTrackingCallback | None = None,
@@ -53,6 +54,7 @@ class PicoBridgeRuntime:
         self._video_source = video
         self._video_enabled = bool(video_enabled)
         self._video_frame_source = video_frame_source
+        self._motion_enabled = bool(motion_enabled)
         self._frame_store = frame_store
         self._print_tracking = print_tracking
         self._on_raw_tracking = on_raw_tracking
@@ -146,6 +148,19 @@ class PicoBridgeRuntime:
             await self._webrtc_sender.stop()
         await self._send_video_policy()
 
+    async def set_motion_enabled(self, enabled: bool) -> None:
+        self._motion_enabled = bool(enabled)
+        await self._send_motion_state()
+
+    async def _send_motion_state(self) -> None:
+        server = self._server
+        if server is None or not server.connected:
+            return
+        await server.send_function(
+            CONTROL_FUNCTION_NAME,
+            build_motion_stream_message(enabled=self._motion_enabled),
+        )
+
     def _handle_tracking(self, data: dict[str, Any]) -> None:
         frame = self._frame_store.append_payload(data)
         if self._on_raw_tracking is not None:
@@ -166,6 +181,7 @@ class PicoBridgeRuntime:
 
     async def _handle_client_connected(self) -> None:
         await self._send_video_policy()
+        await self._send_motion_state()
 
     async def _send_video_policy(self) -> None:
         server = self._server
