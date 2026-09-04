@@ -59,7 +59,9 @@ _CTRL_R_COLOR = [0, 230, 120, 255]
 _HAND_L_COLOR = [255, 220, 50, 255]
 _HAND_R_COLOR = [50, 180, 255, 255]
 _BODY_COLOR = [0, 230, 180, 255]
-_MOTION_COLOR = [255, 90, 170, 255]
+_MOTION_L_COLOR = [255, 90, 170, 255]
+_MOTION_R_COLOR = [170, 120, 255, 255]
+_MOTION_DIM_ALPHA = 70  # invalid tracker: ghost shape at its last pose
 _FOCUS_COLOR = [255, 255, 255, 96]
 _GRID_COLOR = [255, 255, 255, 15]
 _FOCUS_ENTITY_PATH = "world/focus"
@@ -233,7 +235,11 @@ def _compute_tracking_center(data: dict[str, Any]) -> list[float] | None:
         if hand.get(side, {}).get("isActive"):
             points.extend(_pose_points_from_joints(hand.get(side, {}).get("HandJointLocations", [])))
 
-    points.extend(_pose_points_from_joints(data.get("Motion", {}).get("joints", [])))
+    motion = data.get("Motion", {})
+    for side in ("left", "right"):
+        state = motion.get(side)
+        if isinstance(state, dict):
+            _append_pose(points, state.get("p"))
     return _bounds_center(points) if points else None
 
 
@@ -428,28 +434,34 @@ def _body_is_active(body: object) -> bool:
 
 
 def _log_motion(motion: dict) -> None:
-    joints = motion.get("joints", [])
-    count = motion.get("len", len(joints))
-    _signals["Motion"] = count > 0
-    if not joints:
-        _clear_path("world/motion")
-        return
-    pts = []
-    for j in joints:
-        parsed = _parse_pose(j.get("p", ""))
-        if parsed:
-            pts.append(parsed[0])
-    if pts:
-        rr.log("world/motion/pts", rr.Points3D(
-            np.array(pts, dtype=np.float32), colors=[_MOTION_COLOR], radii=[0.035],
+    """Side-first Motion wire (t04 contract): left/right tracker states."""
+    configs = [("left", "Track-L", _MOTION_L_COLOR), ("right", "Track-R", _MOTION_R_COLOR)]
+    for side, key, color in configs:
+        state = motion.get(side)
+        path = f"world/motion/{side}"
+        if not isinstance(state, dict):
+            _signals[key] = False
+            _clear_path(path)
+            continue
+        parsed = _parse_pose(state.get("p"))
+        if not parsed:
+            _signals[key] = False
+            _clear_path(path)
+            continue
+        valid = bool(state.get("valid"))
+        _signals[key] = valid
+        pos, q = parsed
+        shape_color = list(color) if valid else [*color[:3], _MOTION_DIM_ALPHA]
+        rr.log(path, rr.Transform3D(translation=pos, rotation=rr.Quaternion(xyzw=q)))
+        rr.log(f"{path}/shape", rr.Ellipsoids3D(
+            half_sizes=[[0.035, 0.025, 0.02]],
+            colors=[shape_color],
         ))
-    else:
-        _clear_path("world/motion")
 
 
 # ── Status bar (TextDocument, not draggable) ──────────────
 
-_SIGNAL_NAMES = ["Head", "Ctrl-L", "Ctrl-R", "Hand-L", "Hand-R", "Body", "Motion"]
+_SIGNAL_NAMES = ["Head", "Ctrl-L", "Ctrl-R", "Hand-L", "Hand-R", "Body", "Track-L", "Track-R"]
 
 
 def _log_status() -> None:

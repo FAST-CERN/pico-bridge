@@ -326,3 +326,119 @@ def test_log_tracking_focus_updates_follow_entity(visualiser_module):
     )
     assert calls[1][0] == "world/focus"
     assert calls[1][1][0] == "points"
+
+
+def test_log_motion_renders_side_first_trackers(visualiser_module):
+    calls: list[tuple[str, object]] = []
+
+    class FakeQuaternion:
+        def __init__(self, **kwargs: object):
+            self.kwargs = kwargs
+
+    class FakeRerun:
+        Quaternion = staticmethod(lambda **kwargs: FakeQuaternion(**kwargs))
+
+        @staticmethod
+        def Transform3D(**kwargs: object):
+            return ("transform", kwargs)
+
+        @staticmethod
+        def Ellipsoids3D(**kwargs: object):
+            return ("shape", kwargs)
+
+        @staticmethod
+        def log(path: str, value: object) -> None:
+            calls.append((path, value))
+
+    visualiser_module.rr = FakeRerun()
+    visualiser_module._log_motion({
+        "poseSpace": "pico_tracker_local",
+        "left": {"sn": 1, "p": "-0.2,1.4,0.1,0,0,0,1", "valid": True},
+        "right": {"sn": 2, "p": "0.2,1.4,0.1,0,0,0,1", "valid": True},
+    })
+
+    by_path = {path: value for path, value in calls}
+    assert by_path["world/motion/left"][0] == "transform"
+    assert by_path["world/motion/left"][1]["translation"] == [-0.2, 1.4, 0.1]
+    assert by_path["world/motion/right"][1]["translation"] == [0.2, 1.4, 0.1]
+    assert by_path["world/motion/left/shape"][0] == "shape"
+    assert by_path["world/motion/right/shape"][0] == "shape"
+    assert visualiser_module._signals["Track-L"] is True
+    assert visualiser_module._signals["Track-R"] is True
+
+
+def test_log_motion_clears_missing_side(visualiser_module):
+    calls: list[tuple[str, object]] = []
+
+    class FakeRerun:
+        @staticmethod
+        def Clear(*, recursive: bool):
+            return ("clear", recursive)
+
+        @staticmethod
+        def log(path: str, value: object) -> None:
+            calls.append((path, value))
+
+    visualiser_module.rr = FakeRerun()
+    visualiser_module._log_motion({
+        "poseSpace": "pico_tracker_local",
+        "left": None,  # side absent from the wire
+    })
+
+    assert ("world/motion/left", ("clear", True)) in calls
+    assert ("world/motion/right", ("clear", True)) in calls
+    assert visualiser_module._signals["Track-L"] is False
+    assert visualiser_module._signals["Track-R"] is False
+
+
+def test_log_motion_dims_invalid_tracker_but_keeps_last_pose(visualiser_module):
+    calls: list[tuple[str, object]] = []
+
+    class FakeQuaternion:
+        def __init__(self, **kwargs: object):
+            self.kwargs = kwargs
+
+    class FakeRerun:
+        Quaternion = staticmethod(lambda **kwargs: FakeQuaternion(**kwargs))
+
+        @staticmethod
+        def Transform3D(**kwargs: object):
+            return ("transform", kwargs)
+
+        @staticmethod
+        def Ellipsoids3D(**kwargs: object):
+            return ("shape", kwargs)
+
+        @staticmethod
+        def log(path: str, value: object) -> None:
+            calls.append((path, value))
+
+    visualiser_module.rr = FakeRerun()
+    visualiser_module._log_motion({
+        "poseSpace": "pico_tracker_local",
+        "left": {"sn": 1, "p": "-0.2,1.4,0.1,0,0,0,1", "valid": False},
+        "right": {"sn": 2, "p": "0.2,1.4,0.1,0,0,0,1", "valid": True},
+    })
+
+    by_path = {path: value for path, value in calls}
+    # invalid tracker keeps its pose (ghost at last position) but the badge reports invalid
+    assert by_path["world/motion/left"][0] == "transform"
+    assert by_path["world/motion/right"][0] == "transform"
+    assert visualiser_module._signals["Track-L"] is False
+    assert visualiser_module._signals["Track-R"] is True
+
+    dim_alpha = by_path["world/motion/left/shape"][1]["colors"][0][3]
+    full_alpha = by_path["world/motion/right/shape"][1]["colors"][0][3]
+    assert dim_alpha < full_alpha
+
+
+def test_tracking_center_includes_motion_trackers(visualiser_module):
+    center = visualiser_module._compute_tracking_center({
+        "Motion": {
+            "poseSpace": "pico_tracker_local",
+            "left": {"sn": 1, "p": "-1,1.5,0,0,0,0,1", "valid": True},
+            "right": {"sn": 2, "p": "1,1.5,0,0,0,0,1", "valid": True},
+        },
+    })
+
+    assert center == [0.0, 1.5, 0.0]
