@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from .camera_request import CameraRequest
-from .control import CONTROL_FUNCTION_NAME, build_motion_stream_message, build_video_policy_message
+from .control import (
+    CONTROL_FUNCTION_NAME,
+    build_body_stream_message,
+    build_motion_stream_message,
+    build_video_policy_message,
+)
 from .discovery import UdpBroadcaster
 from .frame_store import FrameStore
 from .tcp_server import PicoBridgeServer
@@ -17,6 +23,8 @@ from .webrtc_sender import ExternalVideoFrameSource, WebRtcVideoSender
 log = logging.getLogger("pico_bridge.runtime")
 
 RawTrackingCallback = Callable[[dict[str, Any]], None]
+
+ARM_SOURCES = ("tracker", "body", "auto")
 
 
 @dataclass(frozen=True)
@@ -42,11 +50,17 @@ class PicoBridgeRuntime:
         video_enabled: bool,
         video_frame_source: ExternalVideoFrameSource | None,
         motion_enabled: bool = False,
+        arm_source: str = "tracker",
+        operator_height_m: float = 1.75,
+        auto_fallback_s: float = 15.0,
+        clock: Callable[[], float] | None = None,
         frame_store: FrameStore,
         print_tracking: bool = False,
         on_raw_tracking: RawTrackingCallback | None = None,
         on_started: Callable[[], None] | None = None,
     ):
+        if arm_source not in ARM_SOURCES:
+            raise ValueError(f"arm_source must be one of {ARM_SOURCES}, got {arm_source!r}")
         self._host = host
         self._port = port
         self._discovery_enabled = discovery
@@ -55,6 +69,14 @@ class PicoBridgeRuntime:
         self._video_enabled = bool(video_enabled)
         self._video_frame_source = video_frame_source
         self._motion_enabled = bool(motion_enabled)
+        self._arm_source = str(arm_source)
+        self._operator_height_m = float(operator_height_m)
+        self._auto_fallback_s = float(auto_fallback_s)
+        self._clock = clock or time.monotonic
+        self._body_enabled = self._arm_source == "body"
+        self._connected_at: float | None = None
+        self._auto_fell_back = False
+        self._auto_saw_valid_motion = False
         self._frame_store = frame_store
         self._print_tracking = print_tracking
         self._on_raw_tracking = on_raw_tracking
@@ -152,14 +174,39 @@ class PicoBridgeRuntime:
         self._motion_enabled = bool(enabled)
         await self._send_motion_state()
 
+    async def set_body_enabled(self, enabled: bool, height_m: float | None = None) -> None:
+        """Switch the device to PICO body tracking (mocap map t07)."""
+        self._body_enabled = bool(enabled)
+        if height_m is not None:
+            self._operator_height_m = float(height_m)
+        await self._send_body_state()
+
     async def _send_motion_state(self) -> None:
         server = self._server
         if server is None or not server.connected:
             return
         await server.send_function(
             CONTROL_FUNCTION_NAME,
-            build_motion_stream_message(enabled=self._motion_enabled),
+            build_motion_stream_message(enabled=self._effective_motion_enabled),
         )
+
+    async def _send_body_state(self) -> None:
+        server = self._server
+        if server is None or not server.connected:
+            return
+        await server.send_function(
+            CONTROL_FUNCTION_NAME,
+            build_body_stream_message(enabled=self._body_enabled, height_m=self._operator_height_m),
+        )
+
+    @property
+    def _effective_motion_enabled(self) -> bool:
+        # Arm-source modes (t07): tracker defers to the motion flag, auto
+        # asks for trackers up front (fallback watches the stream), body
+        # explicitly disables motion (device-side mutex mirrors it).
+        if self._arm_source == "tracker":
+            return self._motion_enabled
+        return self._arm_source == "auto"
 
     def _handle_tracking(self, data: dict[str, Any]) -> None:
         frame = self._frame_store.append_payload(data)
@@ -167,6 +214,38 @@ class PicoBridgeRuntime:
             self._on_raw_tracking(data)
         if self._print_tracking:
             print(f"[{frame.seq:>6}] {frame.summary()}", flush=True)
+        self._maybe_auto_fallback(data)
+
+    def _maybe_auto_fallback(self, data: dict[str, Any]) -> None:
+        """arm_source=auto: sticky fallback to body tracking (t07).
+
+        If no valid motion-tracker side is seen within the fallback window
+        after connecting (trackers off / out of FOV / worn over gloves), ask
+        the device for body tracking instead. Sticky by design — no
+        oscillation back once fallen back.
+        """
+        if self._arm_source != "auto" or self._auto_fell_back or self._connected_at is None:
+            return
+
+        motion = data.get("Motion")
+        if isinstance(motion, dict):
+            for side in ("left", "right"):
+                state = motion.get(side)
+                if isinstance(state, dict) and state.get("valid"):
+                    self._auto_saw_valid_motion = True
+        if self._auto_saw_valid_motion:
+            return
+
+        if self._clock() - self._connected_at < self._auto_fallback_s:
+            return
+
+        self._auto_fell_back = True
+        self._body_enabled = True
+        log.info(
+            "arm_source=auto: no valid motion tracker within %.1fs of connect — requesting body tracking",
+            self._auto_fallback_s,
+        )
+        self._schedule_sender_task(self._send_body_state(), "auto-fallback to body tracking")
 
     def _handle_function(self, name: str, value: Any) -> None:
         sender = self._webrtc_sender
@@ -180,8 +259,13 @@ class PicoBridgeRuntime:
         log.info("function: %s = %s", name, value)
 
     async def _handle_client_connected(self) -> None:
+        self._connected_at = self._clock()
+        self._auto_fell_back = False
+        self._auto_saw_valid_motion = False
         await self._send_video_policy()
         await self._send_motion_state()
+        if self._arm_source == "body":
+            await self._send_body_state()
 
     async def _send_video_policy(self) -> None:
         server = self._server

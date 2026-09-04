@@ -82,6 +82,23 @@ namespace PicoBridge.Tracking
             return sn != Unbound && Connected.Contains(sn);
         }
 
+        /// <summary>
+        /// Compact binding summary for the panel (t07): "L:1 R:2" when both
+        /// bound and connected, dashes for unbound, "!" suffix when bound but
+        /// currently disconnected.
+        /// </summary>
+        public static string DescribeSides()
+        {
+            return $"L:{SideText(_leftSn)} R:{SideText(_rightSn)}";
+        }
+
+        private static string SideText(long sn)
+        {
+            if (sn == Unbound)
+                return "--";
+            return Connected.Contains(sn) ? sn.ToString() : sn + "!";
+        }
+
         private static void OnRequestComplete(RequestMotionTrackerCompleteEventData data)
         {
             if (data.result != PxrResult.SUCCESS)

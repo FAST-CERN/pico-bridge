@@ -48,6 +48,9 @@ class PicoBridge:
         video: VideoSource | str | None = None,
         video_enabled: bool | None = None,
         motion_enabled: bool = False,
+        arm_source: str | None = None,
+        operator_height_m: float = 1.75,
+        auto_fallback_s: float = 15.0,
         print_tracking: bool = False,
         history_size: int = 120,
         start_timeout: float = 10.0,
@@ -60,6 +63,9 @@ class PicoBridge:
         self.video = _normalize_video_source(video)
         self.video_enabled = self.video is not None if video_enabled is None else bool(video_enabled)
         self.motion_enabled = bool(motion_enabled)
+        self.arm_source = _normalize_arm_source(arm_source)
+        self.operator_height_m = float(operator_height_m)
+        self.auto_fallback_s = float(auto_fallback_s)
         if self.video_enabled and self.video is None:
             raise ValueError("video_enabled=True requires video='frames' or video='test-pattern'")
         self.print_tracking = print_tracking
@@ -178,6 +184,24 @@ class PicoBridge:
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         future.result()
 
+    def set_body_enabled(self, enabled: bool, height_m: float | None = None) -> None:
+        """Switch the device to PICO body tracking (arm-source mutex, t07)."""
+        if height_m is not None:
+            self.operator_height_m = float(height_m)
+
+        runtime = self._runtime
+        loop = self._loop
+        if runtime is None or loop is None or not loop.is_running():
+            return
+
+        coro = runtime.set_body_enabled(enabled, height_m=height_m)
+        if self._thread is threading.current_thread():
+            loop.create_task(coro)
+            return
+
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.result()
+
     def stats(self) -> PicoBridgeStats:
         frame_stats = self._frame_store.stats()
         runtime = self._runtime
@@ -208,6 +232,9 @@ class PicoBridge:
             video_enabled=self.video_enabled,
             video_frame_source=self._video_frame_source,
             motion_enabled=self.motion_enabled,
+            arm_source=self.arm_source,
+            operator_height_m=self.operator_height_m,
+            auto_fallback_s=self.auto_fallback_s,
             frame_store=self._frame_store,
             print_tracking=self.print_tracking,
             on_raw_tracking=self._on_raw_tracking,
@@ -242,6 +269,16 @@ def _normalize_video_source(video: str | None) -> str | None:
     if video not in ("frames", "test-pattern", "sbs-test-pattern"):
         raise ValueError(f"unsupported video source: {video!r}")
     return video
+
+
+def _normalize_arm_source(arm_source: str | None) -> str:
+    from .runtime import ARM_SOURCES
+
+    if arm_source is None:
+        return "tracker"
+    if arm_source not in ARM_SOURCES:
+        raise ValueError(f"arm_source must be one of {ARM_SOURCES}, got {arm_source!r}")
+    return arm_source
 
 
 def _cancel_pending_tasks(loop: asyncio.AbstractEventLoop) -> None:

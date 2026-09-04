@@ -17,6 +17,7 @@ namespace PicoBridge.UI
         private float _refreshTimer;
         private bool _cameraPreviewRequested;
         private bool _cameraSignalVisible;
+        private ArmSourcePanelRow _armSourceRow;
         private bool _hasExpandedRect;
         private Vector2 _expandedAnchorMin;
         private Vector2 _expandedAnchorMax;
@@ -63,6 +64,7 @@ namespace PicoBridge.UI
             ConfigureImmersiveControl();
             ConfigureServerUrlControl();
             ConfigureResolutionControl();
+            ConfigureArmSourceControl();
         }
 
         private void Start()
@@ -136,6 +138,38 @@ namespace PicoBridge.UI
                 view.resolution1080Button.onClick.RemoveListener(SelectResolution1080);
                 view.resolution1080Button.onClick.AddListener(SelectResolution1080);
             }
+        }
+
+        // Arm-source mode mutex (mocap map t07): code-built pill row under the
+        // server-URL row — Trackers (default) vs Body. No prefab edits.
+        private void ConfigureArmSourceControl()
+        {
+            if (view == null || view.resolution720Button == null)
+                return;
+
+            var templateRow = view.resolution720Button.transform.parent as RectTransform;
+            _armSourceRow = ArmSourcePanelRow.Build(
+                templateRow,
+                onRequestTrackers: () =>
+                {
+                    if (manager != null)
+                        manager.RequestTrackersMode();
+                    RefreshArmSourceControl();
+                },
+                onRequestBody: () =>
+                {
+                    if (manager != null)
+                        manager.RequestBodyMode();
+                    RefreshArmSourceControl();
+                });
+        }
+
+        private void RefreshArmSourceControl()
+        {
+            if (_armSourceRow == null || manager == null)
+                return;
+
+            _armSourceRow.Refresh(manager.sendBody, Tracking.MotionTrackerBinding.DescribeSides());
         }
 
         // Start-time reflection of the persisted choice (after every Awake).
@@ -280,8 +314,11 @@ namespace PicoBridge.UI
             manager.sendHead = true;
             manager.sendControllers = true;
             manager.sendHands = true;
-            manager.sendBody = true;
-            manager.sendMotion = true;
+            // sendBody/sendMotion are governed by the arm-source mutex (t07):
+            // scene default, panel pills, and BridgeControl set_motion/set_body
+            // own them — the blanket enable here was the "body stream sends
+            // but empty" root cause (it forced Body on with nobody calling
+            // StartBodyTracking, and kept both streams on at once).
         }
 
         private void UpdateAutomaticCameraPreview()
@@ -324,6 +361,7 @@ namespace PicoBridge.UI
             RefreshConnectionStatus();
             RefreshTrackingStatus();
             RefreshCameraStatus();
+            RefreshArmSourceControl();
         }
 
         private void RefreshConnectionStatus()

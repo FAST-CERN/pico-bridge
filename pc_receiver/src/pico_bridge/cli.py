@@ -92,7 +92,9 @@ async def _run(args: argparse.Namespace) -> None:
         advertise_ip=args.advertise_ip,
         video=sdk_video,
         video_enabled=sdk_video_enabled,
-        motion_enabled=args.motion_trackers,
+        motion_enabled=args.motion_trackers or args.arm_source == "auto",
+        arm_source=args.arm_source,
+        operator_height_m=args.operator_height,
         print_tracking=args.print_tracking,
         on_raw_tracking=_build_raw_tracking_callback(viz_enabled=viz_enabled, recorder=recorder),
     )
@@ -307,6 +309,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--motion-trackers",
         action="store_true",
         help="Ask the device to stream motion-tracker poses (BridgeControl tracking/set_motion)",
+    )
+    parser.add_argument(
+        "--arm-source",
+        choices=["tracker", "body", "auto"],
+        default="tracker",
+        help=(
+            "Upper-body source (mocap map t07): tracker = HMD + motion trackers (default), "
+            "body = PICO body tracking (set_body; mutually exclusive with motion streaming), "
+            "auto = trackers first, fall back to body if none go valid after the window"
+        ),
+    )
+    parser.add_argument(
+        "--operator-height",
+        type=float,
+        default=1.75,
+        help="Operator height in meters (body-tracking bone lengths, default 1.75)",
     )
     parser.add_argument(
         "--record",

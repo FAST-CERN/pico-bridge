@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.4] - 2026-09-04
+
+### Added
+
+- Arm-source mode selection (mocap map t07): `PicoBridge(arm_source=...)` /
+  CLI `--arm-source {tracker,body,auto}` (default `tracker`). `body` pushes
+  `BridgeControl tracking/set_body` on connect (device starts PICO body
+  tracking with bone lengths from `--operator-height`, motion streaming off);
+  `auto` requests trackers first and stickily falls back to body tracking if
+  no valid tracker side appears within the fallback window (default 15 s).
+- `PicoBridge.set_body_enabled(enabled, height_m=None)` runtime toggle.
+
+## [0.2.3] - 2026-09-03
+
+- Motion-tracker collection on device (side-first `Motion` wire, SN
+  auto-binding, `BridgeControl tracking/set_motion` toggle); receiver
+  requires/forwards `motion_enabled`.
+
 ## [0.2.2] - 2026-09-02
 
 ### Added

@@ -27,6 +27,20 @@ namespace PicoBridge
         public bool sendBody = false;
         public bool sendMotion = false;
 
+        [Header("Arm Source (mocap map t07)")]
+        // Upper-body source mutex: Trackers (HMD + 2 motion trackers, the
+        // mocap-map default) or Body (PICO body tracking; needs gloves off +
+        // controllers held). At most one of sendBody/sendMotion is ever on.
+        [SerializeField] private ArmStreamMode armStream = ArmStreamMode.Trackers;
+        // Operator height in meters -> body-tracking bone lengths (ratio table).
+        [Range(1.0f, 2.2f)]
+        [SerializeField] private float operatorHeight = 1.75f;
+
+        public enum ArmStreamMode { Trackers, Body }
+
+        public ArmStreamMode ArmStream => armStream;
+        public float OperatorHeight => operatorHeight;
+
         [Header("Timing")]
         [Range(30, 120)]
         public int trackingFps = 72;
@@ -108,6 +122,11 @@ namespace PicoBridge
             // gate below would otherwise leave the subscription too late).
             MotionTrackerBinding.EnsureSubscribed();
 #endif
+            // Apply the configured arm-source mode up front (t07): scene
+            // default Trackers keeps both streams off until the receiver or
+            // the panel asks (cb46907 regression contract); Body starts
+            // device body tracking immediately.
+            ApplyArmStream();
             StartVideoSeeThroughBootstrap();
 
             if (autoDiscovery)
@@ -266,10 +285,81 @@ namespace PicoBridge
             // Motion tracker streaming toggle (mocap map t03): panel button is
             // deferred, so the PC side flips it over the existing
             // BridgeControl channel. Default stays off (sendBody style).
+            // t07: enabling motion also leaves Body mode (arm-source mutex).
             if (channel == "tracking" && type == "set_motion")
             {
                 sendMotion = ExtractBool(json, "enabled") ?? false;
+                if (sendMotion)
+                    SetArmStream(ArmStreamMode.Trackers, keepMotionEnabled: true);
+                else
+                    ApplyArmStream();
                 Debug.Log($"[PicoBridge] BridgeControl: sendMotion={sendMotion}");
+                return;
+            }
+
+            // Body tracking toggle (mocap map t07): receiver asks for PICO
+            // body tracking instead of tracker synthesis (gloves off +
+            // controllers held). Starts/stops body tracking on the device and
+            // is mutually exclusive with motion streaming. Optional "height"
+            // (meters) overrides the operator height for bone lengths.
+            if (channel == "tracking" && type == "set_body")
+            {
+                bool enabled = ExtractBool(json, "enabled") ?? false;
+                float? height = ExtractFloat(json, "height");
+                if (height.HasValue)
+                    operatorHeight = Mathf.Clamp(height.Value, 1.0f, 2.2f);
+                if (enabled)
+                {
+                    SetArmStream(ArmStreamMode.Body);
+                }
+                else
+                {
+                    sendBody = false;
+                    BodyTrackingRuntime.EnsureStopped();
+                    armStream = ArmStreamMode.Trackers;
+                    ApplyArmStream();
+                }
+                Debug.Log($"[PicoBridge] BridgeControl: set_body={enabled} height={operatorHeight:0.00}");
+            }
+        }
+
+        /// <summary>
+        /// Switch the upper-body source (panel pills or BridgeControl). Mutex:
+        /// Body turns motion streaming off; Trackers turns body tracking off
+        /// (motion stays receiver-gated unless asked on directly).
+        /// </summary>
+        public void SetArmStream(ArmStreamMode mode, bool keepMotionEnabled = false)
+        {
+            armStream = mode;
+            if (keepMotionEnabled)
+                sendMotion = sendMotion || mode == ArmStreamMode.Trackers;
+            ApplyArmStream();
+        }
+
+        public void RequestTrackersMode()
+        {
+            sendMotion = true;
+            SetArmStream(ArmStreamMode.Trackers, keepMotionEnabled: true);
+        }
+
+        public void RequestBodyMode()
+        {
+            SetArmStream(ArmStreamMode.Body);
+        }
+
+        private void ApplyArmStream()
+        {
+            switch (armStream)
+            {
+                case ArmStreamMode.Trackers:
+                    sendBody = false;
+                    BodyTrackingRuntime.EnsureStopped();
+                    break;
+                case ArmStreamMode.Body:
+                    sendMotion = false;
+                    sendBody = true;
+                    BodyTrackingRuntime.EnsureStarted(operatorHeight);
+                    break;
             }
         }
 
@@ -332,6 +422,24 @@ namespace PicoBridge
             if (start + 5 <= json.Length && string.Compare(json, start, "false", 0, 5, System.StringComparison.Ordinal) == 0)
                 return false;
             return null;
+        }
+
+        private static float? ExtractFloat(string json, string key)
+        {
+            string needle = $"\"{key}\"";
+            int keyIndex = json.IndexOf(needle, System.StringComparison.Ordinal);
+            if (keyIndex < 0) return null;
+            int colon = json.IndexOf(':', keyIndex + needle.Length);
+            if (colon < 0) return null;
+            int start = colon + 1;
+            while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
+            int end = start;
+            while (end < json.Length && (char.IsDigit(json[end]) || json[end] == '.' || json[end] == '-' || json[end] == '+' || json[end] == 'e' || json[end] == 'E'))
+                end++;
+            if (end == start)
+                return null;
+            return float.TryParse(json.Substring(start, end - start), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : (float?)null;
         }
 
         /// <summary>
