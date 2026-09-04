@@ -26,6 +26,7 @@ namespace PicoBridge.Tracking
         private const long Unbound = -1;
 
         private static readonly HashSet<long> Connected = new HashSet<long>();
+        private static bool _subscribed;
         private static bool _started;
         private static long _leftSn = Unbound;
         private static long _rightSn = Unbound;
@@ -34,11 +35,32 @@ namespace PicoBridge.Tracking
             Path.Combine(Application.persistentDataPath, BindingFileName);
 
         /// <summary>
-        /// Idempotent startup: load persisted binding, subscribe tracker
-        /// events, and request enumeration of already-connected trackers.
-        /// Call from the tracking loop when Motion data is first requested
-        /// (not at app start) so the tracker subsystem stays untouched while
-        /// sendMotion is off.
+        /// Subscribe connection events and load the persisted binding. Call
+        /// at app start (manager Start): trackers that connected before the
+        /// bridge session emits Motion (sendMotion off until the receiver
+        /// asks) would otherwise be missed — the runtime delivers their
+        /// connection events once, right after startup (HITL 2026-09-04:
+        /// a pre-connected tracker only bound after a power-cycle until this
+        /// moved early).
+        /// </summary>
+        public static void EnsureSubscribed()
+        {
+            if (_subscribed)
+                return;
+            _subscribed = true;
+
+            LoadBinding();
+            PXR_MotionTracking.MotionTrackerConnectionAction += OnConnectionChanged;
+
+            Debug.Log(
+                "[PicoBridge] Motion tracker events subscribed: " +
+                $"left={SnText(_leftSn)} right={SnText(_rightSn)} file={BindingPath}");
+        }
+
+        /// <summary>
+        /// Idempotent full startup (first Motion frame): on top of the early
+        /// subscription, request enumeration of already-connected trackers
+        /// via CheckMotionTrackerNumber(TWO) -> RequestMotionTrackerCompleteAction.
         /// </summary>
         public static void EnsureStarted()
         {
@@ -46,14 +68,11 @@ namespace PicoBridge.Tracking
                 return;
             _started = true;
 
-            LoadBinding();
+            EnsureSubscribed();
             PXR_MotionTracking.RequestMotionTrackerCompleteAction += OnRequestComplete;
-            PXR_MotionTracking.MotionTrackerConnectionAction += OnConnectionChanged;
             PXR_MotionTracking.CheckMotionTrackerNumber(MotionTrackerNum.TWO);
 
-            Debug.Log(
-                "[PicoBridge] Motion tracker binding started: " +
-                $"left={SnText(_leftSn)} right={SnText(_rightSn)} file={BindingPath}");
+            Debug.Log("[PicoBridge] Motion tracker binding started (enumeration requested)");
         }
 
         /// <summary>Bound SN for the side, connected right now.</summary>

@@ -102,6 +102,11 @@ namespace PicoBridge
             ConfigureTrackingVisualGuards();
 #if UNITY_EDITOR
             SuppressEditorOnlyControllerRenderers();
+#else
+            // Early tracker-event subscription: trackers already powered on
+            // when the app starts must bind without a power-cycle (the sendMotion
+            // gate below would otherwise leave the subscription too late).
+            MotionTrackerBinding.EnsureSubscribed();
 #endif
             StartVideoSeeThroughBootstrap();
 
