@@ -133,7 +133,9 @@ namespace PicoBridge.Editor
 
             view.panelContentRoot = CreateRect("PanelContent", root);
             SetStretch(view.panelContentRoot, 0f);
-            var contentLayout = AddVerticalLayout(view.panelContentRoot.gameObject, 26, 26, 24, 24, 14f);
+            // Content column rides high in the panel (user feedback:
+            // elements sit too low) -- top padding 10 vs 24 elsewhere.
+            var contentLayout = AddVerticalLayout(view.panelContentRoot.gameObject, 24, 24, 10, 24, 14f);
             contentLayout.childControlHeight = true;
             contentLayout.childControlWidth = true;
             contentLayout.childForceExpandHeight = false;
@@ -207,7 +209,7 @@ namespace PicoBridge.Editor
 
         private static void BuildHeader(RectTransform parent, PicoBridgePanelView view)
         {
-            var header = CreateRow("Connection", parent, 72f, 14f);
+            var header = CreateRow("Connection", parent, 80f, 14f);
 
             var pill = CreateRect("ConnectionStatus", header);
             view.statusPillImage = AddImage(pill.gameObject, DisconnectedColor);
@@ -233,7 +235,10 @@ namespace PicoBridge.Editor
             view.cameraPreviewRoot = preview;
             var previewImage = AddImage(preview.gameObject, SurfaceColor);
             AddOutline(previewImage, StrokeColor, new Vector2(1.5f, -1.5f));
-            AddLayoutElement(preview.gameObject, -1f, 540f, 1f, 1f);
+            // Height budget: content area = 860 canvas - 2*20 root inset
+            // - (10+24) content padding = 786. Children: header 80 + preview
+            // + footer 192 + 2*14 spacing <= 786 -> preview <= 486.
+            AddLayoutElement(preview.gameObject, -1f, 470f, 1f, 1f);
 
             var feed = CreateRect("Feed", preview);
             SetStretch(feed, 8f);
@@ -248,82 +253,77 @@ namespace PicoBridge.Editor
             AddOutline(footerImage, StrokeColor, new Vector2(1.5f, -1.5f));
             var footerLayout = footer.GetComponent<VerticalLayoutGroup>();
             footerLayout.padding = new RectOffset(12, 12, 10, 10);
-            AddLayoutElement(footer.gameObject, -1f, 220f, 0f, 0f);
+            AddLayoutElement(footer.gameObject, -1f, 192f, 0f, 0f);
 
-            var tracking = CreateRow("TrackingSignals", footer, 50f, 8f);
+            var tracking = CreateRow("TrackingSignals", footer, 54f, 8f);
             view.trackingSignalImages = new Image[TrackingSignalLabels.Length];
             view.trackingSignalLabels = new TMP_Text[TrackingSignalLabels.Length];
             for (int i = 0; i < TrackingSignalLabels.Length; i++)
                 CreateSignalPill(tracking, view, i);
 
-            var statusRow = CreateRow("StatusAndOpacity", footer, 42f, 12f);
-            view.cameraStatusText = CreateText("CameraStatus", statusRow, "Camera idle", 18, FontStyles.Bold, TextAlignmentOptions.Left, MutedTextColor);
+            var statusRow = CreateRow("StatusAndOpacity", footer, 50f, 12f);
+            view.cameraStatusText = CreateText("CameraStatus", statusRow, "Camera idle", 20, FontStyles.Bold, TextAlignmentOptions.Left, MutedTextColor);
             view.cameraStatusText.enableWordWrapping = false;
-            AddLayoutElement(view.cameraStatusText.gameObject, -1f, 34f, 1f, 0f);
+            AddLayoutElement(view.cameraStatusText.gameObject, -1f, 44f, 1f, 0f);
 
-            var opacityControl = CreateRow("OpacityControl", statusRow, 34f, 8f);
-            AddLayoutElement(opacityControl.gameObject, -1f, 34f, 1f, 0f);
-            var opacityLabel = CreateText("Label", opacityControl, "UI", 16, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            var opacityControl = CreateRow("OpacityControl", statusRow, 40f, 8f);
+            AddLayoutElement(opacityControl.gameObject, -1f, 40f, 1f, 0f);
+            var opacityLabel = CreateText("Label", opacityControl, "UI", 18, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
             opacityLabel.enableWordWrapping = false;
-            AddLayoutElement(opacityLabel.gameObject, 28f, 34f, 0f, 0f);
+            AddLayoutElement(opacityLabel.gameObject, 32f, 40f, 0f, 0f);
             view.uiOpacitySlider = CreateOpacitySlider(opacityControl);
 
-            // Stereo immersive FPV entry button (wired by PicoBridgePanelController).
-            var immersiveControl = CreateRow("ImmersiveControl", statusRow, 34f, 8f);
-            AddLayoutElement(immersiveControl.gameObject, -1f, 34f, 1f, 0f);
+            // Demo-console entry button: the one big action (UI grill
+            // 2026-09-02: demo console, structure enlarged + simplified).
+            var immersiveControl = CreateRow("ImmersiveControl", statusRow, 44f, 8f);
+            AddLayoutElement(immersiveControl.gameObject, -1f, 44f, 1f, 0f);
             var immersiveBadge = CreateRect("ImmersiveButton", immersiveControl);
-            AddLayoutElement(immersiveBadge.gameObject, 150f, 34f, 0f, 0f);
+            AddLayoutElement(immersiveBadge.gameObject, 190f, 44f, 0f, 0f);
             var immersiveImage = AddImage(immersiveBadge.gameObject, new Color(0.10f, 0.35f, 0.22f, 1f));
             var immersiveBtn = immersiveBadge.gameObject.AddComponent<Button>();
             immersiveBtn.targetGraphic = immersiveImage;
-            var immersiveLabel = CreateText("Label", immersiveBadge, "Immersive FPV", 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var immersiveLabel = CreateText("Label", immersiveBadge, "Start", 20, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             immersiveLabel.enableWordWrapping = false;
             view.immersiveButton = immersiveBtn;
 
-            // Editable /offer endpoint (sbs-1080p map t06): the APK survives
-            // robot network changes without an IL2CPP patch. Only the last
-            // two 192.168.<A>.<B> octets are editable; the controller assembles
-            // the full URL. Wired by PicoBridgePanelController; persisted by
-            // the signaling client.
-            var urlRow = CreateRow("ServerUrlControl", footer, 42f, 12f);
-            var urlLabel = CreateText("Label", urlRow, "Server", 16, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            // Editable /offer endpoint + stream resolution request sharing
+            // ONE row so the footer keeps fitting the panel background (two
+            // separate rows overflowed the bottom). Only the last two
+            // 192.168.<A>.<B> octets are editable; the controller assembles
+            // the URL. The resolution pills ride the offer body (honoured by
+            // the teleimager managed bridge) and are selection-colored at
+            // runtime by PicoBridgePanelController.
+            var urlRow = CreateRow("ServerUrlControl", footer, 52f, 10f);
+            var urlLabel = CreateText("Label", urlRow, "Robot IP", 19, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
             urlLabel.enableWordWrapping = false;
-            AddLayoutElement(urlLabel.gameObject, 72f, 34f, 0f, 0f);
+            AddLayoutElement(urlLabel.gameObject, 96f, 44f, 0f, 0f);
 
-            var urlPrefix = CreateText("Prefix", urlRow, "192.168.", 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var urlPrefix = CreateText("Prefix", urlRow, "192.168.", 21, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             urlPrefix.enableWordWrapping = false;
-            AddLayoutElement(urlPrefix.gameObject, 96f, 34f, 0f, 0f);
+            AddLayoutElement(urlPrefix.gameObject, 110f, 44f, 0f, 0f);
 
             view.urlOctetAInput = CreateOctetInput(urlRow, "OctetA");
 
-            var octetDot = CreateText("Dot", urlRow, ".", 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var octetDot = CreateText("Dot", urlRow, ".", 21, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             octetDot.enableWordWrapping = false;
-            AddLayoutElement(octetDot.gameObject, 10f, 34f, 0f, 0f);
+            AddLayoutElement(octetDot.gameObject, 8f, 44f, 0f, 0f);
 
             view.urlOctetBInput = CreateOctetInput(urlRow, "OctetB");
 
-            view.applyUrlButton = CreatePillButton(urlRow, "ApplyUrlButton", "Connect", 110f);
+            view.applyUrlButton = CreatePillButton(urlRow, "ApplyUrlButton", "Connect", 130f);
 
-            // Stream resolution request (720p/1080p) — sent with the offer
-            // body; advisory until the server-side switch lands (sbs-1080p
-            // map negotiation ticket). Selection state is colored at runtime
-            // by PicoBridgePanelController.
-            var resRow = CreateRow("ResolutionControl", footer, 42f, 12f);
-            var resLabel = CreateText("Label", resRow, "Resolution", 16, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
-            resLabel.enableWordWrapping = false;
-            AddLayoutElement(resLabel.gameObject, 110f, 34f, 0f, 0f);
-            view.resolution720Button = CreatePillButton(resRow, "Res720Button", "720p", 96f);
-            view.resolution1080Button = CreatePillButton(resRow, "Res1080Button", "1080p", 96f);
+            view.resolution720Button = CreatePillButton(urlRow, "Res720Button", "720p", 100f);
+            view.resolution1080Button = CreatePillButton(urlRow, "Res1080Button", "1080p", 100f);
         }
 
         private static Button CreatePillButton(RectTransform parent, string name, string label, float width)
         {
             var badge = CreateRect(name, parent);
-            AddLayoutElement(badge.gameObject, width, 34f, 0f, 0f);
+            AddLayoutElement(badge.gameObject, width, 44f, 0f, 0f);
             var image = AddImage(badge.gameObject, new Color(0.10f, 0.35f, 0.22f, 1f));
             var button = badge.gameObject.AddComponent<Button>();
             button.targetGraphic = image;
-            var text = CreateText("Label", badge, label, 16, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var text = CreateText("Label", badge, label, 19, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             text.enableWordWrapping = false;
             return button;
         }
@@ -331,7 +331,7 @@ namespace PicoBridge.Editor
         private static TMP_InputField CreateOctetInput(RectTransform parent, string name)
         {
             var fieldRect = CreateRect(name, parent);
-            AddLayoutElement(fieldRect.gameObject, 64f, 38f, 0f, 0f);
+            AddLayoutElement(fieldRect.gameObject, 72f, 44f, 0f, 0f);
             var fieldImage = AddImage(fieldRect.gameObject, SignalInactiveColor);
             AddOutline(fieldImage, StrokeColor, new Vector2(1f, -1f));
 
@@ -347,11 +347,11 @@ namespace PicoBridge.Editor
             viewport.gameObject.AddComponent<RectMask2D>();
             SetStretch(viewport, 4f);
 
-            var placeholder = CreateText("Placeholder", viewport, "0", 18, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
+            var placeholder = CreateText("Placeholder", viewport, "0", 21, FontStyles.Bold, TextAlignmentOptions.Center, MutedTextColor);
             placeholder.enableWordWrapping = false;
             placeholder.raycastTarget = false;
 
-            var text = CreateText("Text", viewport, string.Empty, 18, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
+            var text = CreateText("Text", viewport, string.Empty, 21, FontStyles.Bold, TextAlignmentOptions.Center, TextColor);
             text.enableWordWrapping = false;
             text.raycastTarget = false;
 
@@ -367,8 +367,10 @@ namespace PicoBridge.Editor
             var badge = CreateRect("CollapseBadge", parent);
             badge.anchorMin = new Vector2(0.5f, 0f);
             badge.anchorMax = new Vector2(0.5f, 0f);
-            badge.pivot = new Vector2(0.5f, 0f);
-            badge.anchoredPosition = new Vector2(0f, 8f);
+            // Tab hanging BELOW the panel bottom edge (pivot = top edge at
+            // the root's bottom): never overlaps the footer surface.
+            badge.pivot = new Vector2(0.5f, 1f);
+            badge.anchoredPosition = new Vector2(0f, -6f);
             badge.sizeDelta = new Vector2(54f, 34f);
 
             var image = AddImage(badge.gameObject, BadgeColor);
@@ -427,7 +429,9 @@ namespace PicoBridge.Editor
         private static Slider CreateOpacitySlider(RectTransform parent)
         {
             var sliderRect = CreateRect("OpacityBar", parent);
-            AddLayoutElement(sliderRect.gameObject, -1f, 34f, 1f, 0f);
+            // Fixed compact width: a full-row flexible bar renders as a skinny
+            // 600px strip; track-height knob below.
+            AddLayoutElement(sliderRect.gameObject, 220f, 36f, 0f, 0f);
 
             var slider = sliderRect.gameObject.AddComponent<Slider>();
             slider.minValue = MinUiOpacity;
@@ -459,7 +463,7 @@ namespace PicoBridge.Editor
 
             var handle = CreateRect("Handle", handleArea);
             var handleImage = AddImage(handle.gameObject, TextColor);
-            handle.sizeDelta = new Vector2(18f, 28f);
+            handle.sizeDelta = new Vector2(16f, 14f); // track-height knob (was 18x28)
 
             slider.fillRect = fill;
             slider.handleRect = handle;

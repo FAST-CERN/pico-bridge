@@ -25,6 +25,8 @@ namespace PicoBridge.Immersive
         [SerializeField] private WebRtcHttpSignalingClient teleimagerStream;
         [Tooltip("Spinner overlay shown while no video texture has arrived (built by the bootstrap).")]
         [SerializeField] private StereoImmersiveLoadingSpinner loadingSpinner;
+        [Tooltip("Short-lived exit hint shown when immersive mode starts (built by the bootstrap).")]
+        [SerializeField] private StereoImmersiveExitHint exitHint;
         [Tooltip("Hide panel while immersive mode is active.")]
         [SerializeField] private bool hidePanel = true;
         [Tooltip("Grip button that exits immersive mode.")]
@@ -85,6 +87,8 @@ namespace PicoBridge.Immersive
 
         public void SetLoadingSpinner(StereoImmersiveLoadingSpinner spinner) => loadingSpinner = spinner;
 
+        public void SetExitHint(StereoImmersiveExitHint hint) => exitHint = hint;
+
         private UnityEngine.Texture ResolveVideoTexture()
         {
             if (teleimagerStream != null && teleimagerStream.HasVideoSignal)
@@ -113,6 +117,9 @@ namespace PicoBridge.Immersive
                 // server builds a fresh peer connection per POST).
                 if (teleimagerStream != null && teleimagerStream.IsConfigured)
                     teleimagerStream.StartStream();
+
+                if (exitHint != null)
+                    exitHint.Show();
 
                 var tex = ResolveVideoTexture();
                 var cam = UnityEngine.Camera.main;

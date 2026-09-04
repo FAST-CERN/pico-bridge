@@ -51,10 +51,14 @@ namespace PicoBridge.Immersive
             rig.Configure(distance, height, eyeAspect);
 
             var controller = gameObject.AddComponent<StereoImmersiveController>();
-            // Loading spinner in front of the screen until the first frame.
+            // Loading spinner in front of the screen until the first frame,
+            // plus a short-lived exit hint when immersive mode starts.
             var spinner = gameObject.AddComponent<StereoImmersiveLoadingSpinner>();
             spinner.Build(transform, distance);
             controller.SetLoadingSpinner(spinner);
+            var exitHint = gameObject.AddComponent<StereoImmersiveExitHint>();
+            exitHint.Build(transform, distance);
+            controller.SetExitHint(exitHint);
             var receiver = FindObjectOfType<WebRtcCameraReceiver>();
             if (receiver != null)
                 controller.SetWebRtcCamera(receiver);
