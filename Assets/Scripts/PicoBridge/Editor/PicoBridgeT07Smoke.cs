@@ -90,6 +90,30 @@ namespace PicoBridge.Editor
                 InvokePrivate(manager, "HandleBridgeControl", setBodyOff);
                 Check(!manager.sendBody, "set_body(false): body stream off");
                 Check(manager.ArmStream == PicoBridgeManager.ArmStreamMode.Trackers, "set_body(false): falls back to Trackers mode");
+
+                // ── tracker gizmos (t07 addendum: calibration aid) ──
+                var vizObject = new GameObject("T07SmokeViz");
+                try
+                {
+                    var viz = vizObject.AddComponent<Tracking.MotionTrackerVisualizer>();
+                    InvokePrivate(viz, "Start");
+                    var leftRoot = vizObject.transform.Find("TrackerGizmoLeft");
+                    var rightRoot = vizObject.transform.Find("TrackerGizmoRight");
+                    Check(leftRoot != null && rightRoot != null, "tracker gizmos built per side");
+                    Check(leftRoot.Find("axis0") != null && leftRoot.Find("axis1") != null && leftRoot.Find("axis2") != null,
+                        "three axis bars built");
+                    Check(leftRoot.Find("tip0") != null && leftRoot.Find("tip1") != null && leftRoot.Find("tip2") != null,
+                        "axis direction tips built");
+                    Check(!leftRoot.gameObject.activeSelf, "gizmo hidden until side connects");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(vizObject);
+                }
+
+                Tracking.MotionTrackerBinding.SetOpticalSample("left", false);
+                var describe = Tracking.MotionTrackerBinding.DescribeSides();
+                Check(describe == "L:-- R:--", "DescribeSides with no binding: " + describe);
             }
             finally
             {

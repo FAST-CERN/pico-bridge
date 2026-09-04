@@ -121,6 +121,9 @@ namespace PicoBridge
             // when the app starts must bind without a power-cycle (the sendMotion
             // gate below would otherwise leave the subscription too late).
             MotionTrackerBinding.EnsureSubscribed();
+            // In-headset tracker gizmos (t07 addendum): FOV feedback + mount
+            // orientation reference for offset recalibration (pico_tracker_local axes).
+            MotionTrackerVisualizer.EnsureCreated(transform);
 #endif
             // Apply the configured arm-source mode up front (t07): scene
             // default Trackers keeps both streams off until the receiver or

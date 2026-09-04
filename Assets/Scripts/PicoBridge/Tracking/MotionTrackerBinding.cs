@@ -85,19 +85,30 @@ namespace PicoBridge.Tracking
         /// <summary>
         /// Compact binding summary for the panel (t07): "L:1 R:2" when both
         /// bound and connected, dashes for unbound, "!" suffix when bound but
-        /// currently disconnected.
+        /// currently disconnected, "?" suffix when optically invalid (out of
+        /// HMD view — fed by MotionTrackerVisualizer).
         /// </summary>
         public static string DescribeSides()
         {
-            return $"L:{SideText(_leftSn)} R:{SideText(_rightSn)}";
+            return $"L:{SideText(_leftSn, "left")} R:{SideText(_rightSn, "right")}";
         }
 
-        private static string SideText(long sn)
+        private static string SideText(long sn, string side)
         {
             if (sn == Unbound)
                 return "--";
-            return Connected.Contains(sn) ? sn.ToString() : sn + "!";
+            if (!Connected.Contains(sn))
+                return sn + "!";
+            return _opticalValid.TryGetValue(side, out bool valid) && !valid ? sn + "?" : sn.ToString();
         }
+
+        /// <summary>Latest optical-validity sample per side (visualizer feed).</summary>
+        public static void SetOpticalSample(string side, bool valid)
+        {
+            _opticalValid[side] = valid;
+        }
+
+        private static readonly Dictionary<string, bool> _opticalValid = new Dictionary<string, bool>();
 
         private static void OnRequestComplete(RequestMotionTrackerCompleteEventData data)
         {
