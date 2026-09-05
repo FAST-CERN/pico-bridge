@@ -6,10 +6,11 @@ namespace PicoBridge.Tracking
     /// <summary>
     /// Latest corrected body-frame snapshot shared between the collector
     /// (producer, main-thread Update) and the in-app visualizer (consumer,
-    /// bodytrack-deploy t09). The collector fills this with the same
-    /// post-flip, post-mount-correction poses it serializes, so the operator
-    /// sees exactly what the robot receives. Empty/absent frames leave the
-    /// cache to go stale by timestamp (grey-ghost semantics downstream).
+    /// bodytrack-deploy t09). The collector fills this with the corrected
+    /// PICO-NATIVE poses (correction applied pre-flip — the SDK avatar
+    /// composes only from native locals); the wire output is the same poses
+    /// after the standard flip, so the operator sees exactly what the robot
+    /// receives. Empty/absent frames leave the cache stale by timestamp.
     /// </summary>
     public static class BodyFrameCache
     {

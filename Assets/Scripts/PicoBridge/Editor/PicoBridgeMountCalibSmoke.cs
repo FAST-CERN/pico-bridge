@@ -122,6 +122,9 @@ namespace PicoBridge.Editor
                     InvokePrivate(driver, "Start");
                     var mapped = (int)InvokePrivateField(driver, "_joints", "length");
                     Check(mapped >= 20, $"avatar joints mapped by enum name ({mapped}/23)");
+                    var headCube = FindDeep(avatarObject.transform, "HEAD");
+                    Check(headCube != null && (headCube.Find("Cube") == null || !headCube.Find("Cube").gameObject.activeSelf),
+                        "HEAD cube hidden (occlusion, UX review 4)");
 
                     var positions = new Vector3[Tracking.BodyFrameCache.JointCount];
                     var rotations = new Quaternion[Tracking.BodyFrameCache.JointCount];

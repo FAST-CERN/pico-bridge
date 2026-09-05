@@ -7,23 +7,25 @@ namespace PicoBridge.Tracking
 {
     /// <summary>
     /// Drives the PICO SDK's own BodyTracking Building-Block avatar (the
-    /// familiar white-cube full-body figure) from the corrected output cache
-    /// (bodytrack-deploy t09, reworked on the 2026-09-05 reviews: no
-    /// hand-built skeleton/cubes — the operator calibrates against the
-    /// original SDK avatar). The block's own Update stays inert (its
-    /// StartBodyTracking is never called), so this driver is the only writer:
-    /// what the avatar shows is exactly what the robot receives — raw in Held
-    /// mode, adjusted in Gloves mode — and the steppers move it directly.
+    /// familiar white-cube full-body figure) from the corrected NATIVE output
+    /// cache (bodytrack-deploy t09, reworked across the 2026-09-05 review
+    /// rounds). The prefab's hierarchy only composes correctly with
+    /// PICO-native local poses, so the collector now applies the mount
+    /// correction in the native frame pre-flip and caches that; this driver
+    /// assigns those locals exactly as the block itself would (original
+    /// rendering position & configuration — the block's own Start places the
+    /// figure, no transform manipulation here). The wire output is the same
+    /// corrected pose after the standard flip, so the avatar shows precisely
+    /// what the robot receives — raw in Held mode, adjusted in Gloves mode —
+    /// and the steppers move it directly.
     ///
-    /// Placement: co-located with the operator (2026-09-05 review round 3) —
-    /// the avatar's HEAD node is glued to the real headset every frame (root
-    /// yaw follows the head), so the whole body overlays the real one and the
-    /// hand cubes sit on the real hand backs for direct comparison. Not a
-    /// floating figure in front.
+    /// Selective rendering: the HEAD (and NECK) cubes are hidden — they sit
+    /// at eye height and block the view; everything else stays for the
+    /// hand-back comparison.
     /// </summary>
     public class BodyTrackingBlockDriver : MonoBehaviour
     {
-        private const int HeadRole = (int)BodyTrackerRole.HEAD;
+        private static readonly string[] HiddenRoles = { "HEAD", "NECK" };
 
         private readonly Transform[] _joints = new Transform[BodyFrameCache.JointCount];
         private Transform _root;
@@ -50,6 +52,7 @@ namespace PicoBridge.Tracking
             _root = block != null && block.skeletonJoints != null ? block.skeletonJoints : transform;
             _root.gameObject.SetActive(true);
             MapJointsByName();
+            HideOccludingCubes();
         }
 
         /// <summary>Map avatar joints by BodyTrackerRole enum names (same scheme as
@@ -68,6 +71,21 @@ namespace PicoBridge.Tracking
             }
         }
 
+        private void HideOccludingCubes()
+        {
+            foreach (var roleName in HiddenRoles)
+            {
+                foreach (var joint in _joints)
+                {
+                    if (joint == null || joint.name != roleName)
+                        continue;
+                    var cube = joint.Find("Cube");
+                    if (cube != null)
+                        cube.gameObject.SetActive(false);
+                }
+            }
+        }
+
         private void Update()
         {
             // Hidden while the FPV immersive screen owns the view.
@@ -78,34 +96,16 @@ namespace PicoBridge.Tracking
             if (hidden || !BodyFrameCache.HasData)
                 return;
 
-            var cam = UnityEngine.Camera.main;
-
             if (!BodyFrameCache.TryGetFrame(_positions, _rotations))
                 return;
 
-            // Role 0 (pelvis) has no avatar node in the prefab; the chain
-            // composes from the spine down to the hand cubes regardless.
-            for (int i = 1; i < BodyFrameCache.JointCount; i++)
+            for (int i = 0; i < BodyFrameCache.JointCount; i++)
             {
                 var joint = _joints[i];
                 if (joint == null)
                     continue;
                 joint.localPosition = _positions[i];
                 joint.localRotation = _rotations[i];
-            }
-
-            // Co-locate with the operator: yaw-flatten the head pose, then
-            // shift the whole avatar so its HEAD node sits on the real
-            // headset — the body overlays the real one and the hand cubes
-            // land on the real hand backs for direct comparison.
-            if (cam != null && _joints[HeadRole] != null)
-            {
-                Vector3 forward = cam.transform.forward;
-                forward.y = 0f;
-                if (forward.sqrMagnitude < 1e-4f)
-                    forward = Vector3.forward;
-                transform.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
-                transform.position += cam.transform.position - _joints[HeadRole].position;
             }
         }
     }

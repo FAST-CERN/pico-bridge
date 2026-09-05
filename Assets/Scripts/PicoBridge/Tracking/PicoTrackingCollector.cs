@@ -218,28 +218,32 @@ namespace PicoBridge.Tracking
                 if (i > 0) _sb.Append(',');
                 var rd = data.roleDatas[i];
 
-                // PICO-native local -> Unity flip (AppendBody contract), then
-                // the strapped-mount correction on the Wrist/Hand joints in
-                // that same post-flip frame (bodytrack-deploy t07; Teleopit's
-                // correction layer stays null so the two never stack).
+                // Mount correction FIRST, in the PICO-native joint frame
+                // (bodytrack-deploy t07/t09): the avatar renders native
+                // poses (the SDK prefab only composes correctly with
+                // native locals), and the wire output is the SAME corrected
+                // pose after the standard native->Unity flip — one
+                // correction, both views, tuned against what the operator
+                // sees. Teleopit's correction layer stays null (no stacking).
                 var pos = new Vector3(
                     (float)rd.localPose.PosX,
                     (float)rd.localPose.PosY,
-                    -(float)rd.localPose.PosZ);
+                    (float)rd.localPose.PosZ);
                 var rot = new Quaternion(
                     (float)rd.localPose.RotQx,
                     (float)rd.localPose.RotQy,
-                    -(float)rd.localPose.RotQz,
-                    -(float)rd.localPose.RotQw);
+                    (float)rd.localPose.RotQz,
+                    (float)rd.localPose.RotQw);
                 BodyMountCorrection.Apply(i, ref pos, ref rot);
 
-                // Same corrected poses feed the in-app visualizer (t09): the
-                // operator watches what the robot receives, correction
-                // included.
+                // Avatar feed: corrected NATIVE pose (the block's own
+                // rendering convention — original placement & config).
                 BodyFrameCache.SetJoint(i, pos, rot, Time.realtimeSinceStartup);
 
+                // Wire: the standard PICO-native -> Unity flip of the same
+                // corrected pose (AppendBody contract).
                 _sb.Append("{\"p\":\"");
-                AppendPose(pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w);
+                AppendPose(pos.x, pos.y, -pos.z, rot.x, rot.y, -rot.z, -rot.w);
                 _sb.Append($"\",\"t\":{rd.localPose.TimeStamp}");
                 unsafe
                 {
