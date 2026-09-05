@@ -72,10 +72,10 @@ namespace PicoBridge.Editor
                 Check(Mathf.Abs(left.yaw - 5f) < 1e-4f && Mathf.Abs(left.level) < 1e-4f,
                     "L yaw + steps yaw to 5 deg (level untouched)");
 
-                buttonsR[2].onClick.Invoke(); // R lev -
+                buttonsR[2].onClick.Invoke(); // R lev - (mm)
                 var right = Tracking.BodyMountCorrection.GetSide("right");
                 Check(Mathf.Abs(right.level + 5f) < 1e-4f && Mathf.Abs(right.yaw) < 1e-4f,
-                    "R lev - steps level to -5 deg (yaw untouched)");
+                    "R lev - steps level to -5 mm axial slide (yaw untouched)");
 
                 var yawText = rowL.Find("YawValue").GetComponent<TMPro.TMP_Text>();
                 Check(yawText.text.Contains("5"), $"value text refreshed ({yawText.text})");
@@ -132,9 +132,11 @@ namespace PicoBridge.Editor
                     InvokePrivate(viz, "Update");
 
                     Check(content.gameObject.activeSelf, "viz content live on fresh cache");
-                    var handL = FindDeep(vizObject.transform, "HandBlockL");
-                    var handR = FindDeep(vizObject.transform, "HandBlockR");
-                    Check(handL != null && handR != null, "hand blocks built (L orange / R green)");
+                    var handL = FindDeep(vizObject.transform, "HandCubeL");
+                    var handR = FindDeep(vizObject.transform, "HandCubeR");
+                    Check(handL != null && handR != null, "white hand cubes built (raw-vs-adjusted targets)");
+                    Check(FindDeep(vizObject.transform, "Bone1") == null && FindDeep(vizObject.transform, "WristMarker20") == null,
+                        "skeleton bones/markers removed (UX review)");
                     // root sits at y=1 and the 8-edge chain to the hands adds 8
                     Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, $"hand block L at joint-22 pose (y={handL.position.y})");
                     Check(Mathf.Abs(handR.position.y - 9f) < 1e-3f, $"hand block R at joint-23 pose (y={handR.position.y})");
@@ -142,7 +144,7 @@ namespace PicoBridge.Editor
                     // stale cache -> grey ghost, last pose kept
                     Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup - 5f);
                     InvokePrivate(viz, "Update");
-                    var ghostColor = FindDeep(vizObject.transform, "HandBlockL").GetComponent<Renderer>().sharedMaterial.color;
+                    var ghostColor = FindDeep(vizObject.transform, "HandCubeL").GetComponent<Renderer>().sharedMaterial.color;
                     Check(content.gameObject.activeSelf && ghostColor.g > 0.39f && ghostColor.g < 0.41f && ghostColor.r > 0.39f,
                         $"stale cache mutes colors to grey ghost (g={ghostColor.g:0.00})");
                     Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, "ghost keeps the last pose");

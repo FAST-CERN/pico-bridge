@@ -7,19 +7,22 @@ namespace PicoBridge.UI
 {
     /// <summary>
     /// Code-built calibration stepper rows (bodytrack-deploy t08): per side a
-    /// yaw and a level ±StepDegrees stepper, stacked under the arm-source row.
+    /// yaw stepper (±5°, twist about the hand cube's vertical axis) and a
+    /// level stepper (±5 mm slide along that axis — semantics per the
+    /// 2026-09-05 in-headset review), stacked under the arm-source row.
     ///
     /// Clicks go straight through the owner's callback into
     /// Tracking.BodyMountCorrection.SetSide, so an adjustment applies to the
     /// body output on the next collected frame and persists as the boot
-    /// default (t07 store) — the receiver sees the joints move. The visual
-    /// convergence loop (adjust until the hand block matches the real hand
-    /// back) lands with the in-app body visualization (t09).
+    /// default (t07 store) — the hand cubes move immediately and the
+    /// receiver sees the joints move.
     /// </summary>
     public class MountCalibPanelRow
     {
-        public const float StepDegrees = 5f;
-        public const float MaxDegrees = 90f;
+        public const float YawStepDegrees = 5f;
+        public const float LevelStepMillimetres = 5f;
+        public const float MaxYawDegrees = 90f;
+        public const float MaxLevelMillimetres = 150f;
 
         private static readonly Color StepperColor = new Color(0.16f, 0.19f, 0.205f, 1f);
         private static readonly Color TextColor = new Color(0.94f, 0.975f, 0.985f, 1f);
@@ -120,10 +123,11 @@ namespace PicoBridge.UI
 
         private static void MakeStepper(Transform parent, string param, Action<float> onDelta)
         {
+            float step = param == "yaw" ? YawStepDegrees : LevelStepMillimetres;
             MakeLabel(parent, param, width: 52f, color: MutedTextColor, fontSize: 22f);
-            MakeButton(parent, "-", () => onDelta(-StepDegrees));
+            MakeButton(parent, "-", () => onDelta(-step));
             MakeValueText(parent, param == "yaw" ? "YawValue" : "LevelValue");
-            MakeButton(parent, "+", () => onDelta(StepDegrees));
+            MakeButton(parent, "+", () => onDelta(step));
         }
 
         private static TMP_Text MakeLabel(Transform parent, string label, float width, Color color, float fontSize = 26f)
@@ -213,7 +217,7 @@ namespace PicoBridge.UI
             }
             if (levelText != null)
             {
-                levelText.text = $"{entry.level:0.#}°";
+                levelText.text = $"{entry.level:0.#}mm";
                 levelText.color = active ? TextColor : MutedTextColor;
             }
         }

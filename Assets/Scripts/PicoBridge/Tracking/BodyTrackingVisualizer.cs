@@ -5,31 +5,27 @@ using UnityEngine;
 namespace PicoBridge.Tracking
 {
     /// <summary>
-    /// In-app rendering of the 24-joint body-tracking skeleton, corrected data
-    /// included (bodytrack-deploy t09). The operator watches in-headset what
-    /// the robot receives: per-side hand blocks are the calibration targets
-    /// (visual language shared with the tracker gizmos — left orange, right
-    /// green; grey ghost when the stream is stale; hidden while the FPV
-    /// immersive screen owns the view).
-    ///
-    /// Local poses drive a 24-joint transform hierarchy rebuilt from
-    /// BodyFrameCache each frame; bones are stretched cubes between joints.
-    /// The rig floats ~1.6 m in front of the head (yaw-follow) at 1:1 scale.
-    /// The content container (not this component's GameObject) toggles
-    /// visibility so Update keeps running while hidden.
+    /// In-app display of the live body-tracking output (bodytrack-deploy t09,
+    /// reworked on the first in-headset review 2026-09-05): one white cube per
+    /// hand, driven by the corrected poses the robot receives
+    /// (BodyFrameCache). In Held mode (correction off) the cubes show the raw
+    /// output; in Gloves mode (correction on) the adjusted one — the mode
+    /// toggle doubles as a raw-vs-adjusted comparison, and the steppers move
+    /// the cubes directly (yaw twists about the cube's vertical axis, level
+    /// slides along it). The full skeleton was tried and dropped in that
+    /// review; only the hand cubes remain, so the invisible joint hierarchy
+    /// below exists purely to compose the hand poses from parent-local
+    /// rotations. Grey ghost when the stream is stale; hidden while the FPV
+    /// immersive screen owns the view.
     /// </summary>
     public class BodyTrackingVisualizer : MonoBehaviour
     {
-        private static readonly Color LeftColor = new Color(1.0f, 0.55f, 0.15f);
-        private static readonly Color RightColor = new Color(0.15f, 0.8f, 0.55f);
-        private static readonly Color BoneColor = new Color(0.85f, 0.87f, 0.9f, 0.65f);
+        private static readonly Color CubeColor = new Color(0.95f, 0.96f, 0.98f, 0.95f);
         private static readonly Color GhostColor = new Color(0.4f, 0.4f, 0.44f, 0.75f);
 
         private const float StaleSeconds = 0.35f;
         private const float RigDistance = 1.6f;
-        private const float HandBlockSize = 0.06f;
-        private const float WristMarkerSize = 0.028f;
-        private const float BoneThickness = 0.012f;
+        private const float CubeSize = 0.06f;
 
         // BodyTrackerRole order (PXR_Plugin): Pelvis=0 .. RIGHT_HAND=23.
         // Entry i = parent joint of role i (-1 = root).
@@ -52,11 +48,9 @@ namespace PicoBridge.Tracking
 
         private Transform _content;
         private Transform[] _joints;
-        private Transform[] _bones;
-        private Transform _leftHand;
-        private Transform _rightHand;
-        private Renderer[] _renderers;
-        private Color[] _baseColors;
+        private Transform _leftCube;
+        private Transform _rightCube;
+        private Renderer[] _cubeRenderers;
 
         private readonly Vector3[] _positions = new Vector3[BodyFrameCache.JointCount];
         private readonly Quaternion[] _rotations = new Quaternion[BodyFrameCache.JointCount];
@@ -83,74 +77,49 @@ namespace PicoBridge.Tracking
             _content = new GameObject("VizContent").transform;
             _content.SetParent(transform, false);
 
+            // Invisible chain: parent-local poses must compose to get the hand
+            // world poses; nothing between root and hands is rendered.
             _joints = new Transform[BodyFrameCache.JointCount];
             for (int i = 0; i < BodyFrameCache.JointCount; i++)
-            {
-                var jointObject = new GameObject("Joint" + i);
-                _joints[i] = jointObject.transform;
-            }
-            // Chain per ParentOf: cached local poses are parent-relative, so
-            // the hierarchy must mirror the skeleton for them to compose.
+                _joints[i] = new GameObject("Joint" + i).transform;
             for (int i = 0; i < BodyFrameCache.JointCount; i++)
                 _joints[i].SetParent(i == 0 ? _content : _joints[ParentOf[i]], false);
 
-            var rendererList = new List<Renderer>();
-            var colorList = new List<Color>();
-
-            foreach (int wrist in new[] { 20, 21 })
-            {
-                var marker = MakeBlock("WristMarker" + wrist, BoneColor, WristMarkerSize, rendererList, colorList);
-                marker.SetParent(_joints[wrist], false);
-            }
-
-            _bones = new Transform[BodyFrameCache.JointCount - 1];
-            int boneIndex = 0;
-            for (int i = 1; i < BodyFrameCache.JointCount; i++)
-            {
-                var bone = MakeBlock("Bone" + i, BoneColor, BoneThickness, rendererList, colorList);
-                bone.SetParent(_content, false);
-                _bones[boneIndex++] = bone;
-            }
-
-            _leftHand = MakeBlock("HandBlockL", LeftColor, HandBlockSize, rendererList, colorList);
-            _leftHand.SetParent(_content, false);
-            _rightHand = MakeBlock("HandBlockR", RightColor, HandBlockSize, rendererList, colorList);
-            _rightHand.SetParent(_content, false);
-
-            _renderers = rendererList.ToArray();
-            _baseColors = colorList.ToArray();
+            var renderers = new List<Renderer>();
+            _leftCube = MakeCube("HandCubeL", renderers);
+            _leftCube.SetParent(_content, false);
+            _rightCube = MakeCube("HandCubeR", renderers);
+            _rightCube.SetParent(_content, false);
+            _cubeRenderers = renderers.ToArray();
         }
 
-        private static Transform MakeBlock(string name, Color color, float size, List<Renderer> renderers, List<Color> colors)
+        private static Transform MakeCube(string name, List<Renderer> renderers)
         {
-            var block = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            block.name = name;
-            var collider = block.GetComponent<Collider>();
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = name;
+            var collider = cube.GetComponent<Collider>();
             if (Application.isPlaying)
                 Destroy(collider);
             else
                 DestroyImmediate(collider);
-            block.transform.localScale = new Vector3(size, size, size);
+            cube.transform.localScale = Vector3.one * CubeSize;
 
             var shader = Shader.Find("Standard");
             var material = new Material(shader != null ? shader : Shader.Find("Diffuse"));
-            material.color = color;
+            material.color = CubeColor;
             if (material.HasProperty("_EmissionColor"))
             {
                 material.EnableKeyword("_EMISSION");
-                material.SetColor("_EmissionColor", color * 0.4f);
+                material.SetColor("_EmissionColor", CubeColor * 0.35f);
             }
-            block.GetComponent<Renderer>().sharedMaterial = material;
-
-            renderers.Add(block.GetComponent<Renderer>());
-            colors.Add(color);
-            return block.transform;
+            cube.GetComponent<Renderer>().sharedMaterial = material;
+            renderers.Add(cube.GetComponent<Renderer>());
+            return cube.transform;
         }
 
         private void Update()
         {
-            // Hidden while the FPV immersive screen owns the view (the panel
-            // hides for the same reason).
+            // Hidden while the FPV immersive screen owns the view.
             var immersive = FindObjectOfType<StereoImmersiveController>();
             if (immersive != null && immersive.IsImmersiveActive)
             {
@@ -166,8 +135,7 @@ namespace PicoBridge.Tracking
 
             SetContentActive(true);
 
-            // Head-follow placement: 1:1 skeleton floating ahead of the user.
-            // (Fully qualified: PicoBridge.Camera shadows UnityEngine.Camera.)
+            // Head-follow placement: the cubes float ahead of the user at 1:1.
             var cam = UnityEngine.Camera.main;
             if (cam != null)
             {
@@ -188,37 +156,14 @@ namespace PicoBridge.Tracking
                 _joints[i].localRotation = _rotations[i];
             }
 
-            int boneIndex = 0;
-            for (int i = 1; i < BodyFrameCache.JointCount; i++)
-            {
-                Vector3 from = _joints[ParentOf[i]].position;
-                Vector3 to = _joints[i].position;
-                var bone = _bones[boneIndex++];
-                Vector3 delta = to - from;
-                float length = delta.magnitude;
-                bone.gameObject.SetActive(length > 1e-5f);
-                if (length > 1e-5f)
-                {
-                    bone.position = (from + to) * 0.5f;
-                    bone.rotation = Quaternion.LookRotation(delta);
-                    bone.localScale = new Vector3(BoneThickness, BoneThickness, length);
-                }
-            }
+            _leftCube.SetPositionAndRotation(_joints[22].position, _joints[22].rotation);
+            _rightCube.SetPositionAndRotation(_joints[23].position, _joints[23].rotation);
 
-            // Hand blocks sit on the HAND joints (22/23), scaled up so the
-            // calibration target is unmistakable; they move the moment a
-            // stepper or set_mount_correction changes the store.
-            _leftHand.SetPositionAndRotation(_joints[22].position, _joints[22].rotation);
-            _rightHand.SetPositionAndRotation(_joints[23].position, _joints[23].rotation);
-
-            // Grey ghost when the stream is stale (tracker-gizmo language):
-            // keep the last pose, mute every color.
+            // Grey ghost when the stream is stale; otherwise the corrected
+            // (Gloves) or raw (Held) output white.
             bool live = Time.realtimeSinceStartup - BodyFrameCache.LastUpdate <= StaleSeconds;
-            for (int i = 0; i < _renderers.Length; i++)
-            {
-                var material = _renderers[i].sharedMaterial;
-                material.color = live ? _baseColors[i] : GhostColor;
-            }
+            foreach (var renderer in _cubeRenderers)
+                renderer.sharedMaterial.color = live ? CubeColor : GhostColor;
         }
 
         private void SetContentActive(bool active)

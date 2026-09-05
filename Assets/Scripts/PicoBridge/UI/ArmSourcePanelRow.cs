@@ -7,13 +7,15 @@ namespace PicoBridge.UI
 {
     /// <summary>
     /// Code-built panel row for the arm-source mode mutex (mocap t07;
-    /// reworked bodytrack-deploy t10): "Gloves" (controllers strapped to the
-    /// hand backs, mount correction ON) vs "Held" (normal grip, correction
-    /// OFF) — both PICO body mode, the pills are the correction enable
-    /// switch. The Trackers fallback pill is demoted to a secondary item
-    /// (code kept; the tracker path remains a receiver-driven ops action).
-    /// SN binding summary stays. Built entirely from code under the panel's
-    /// existing control rows (no prefab edits).
+    /// reworked bodytrack-deploy t10, trimmed on the 2026-09-05 in-headset
+    /// review): "Gloves" (controllers strapped to the hand backs, mount
+    /// correction ON) vs "Held" (normal grip, correction OFF) — both PICO
+    /// body mode, the pills are the correction enable switch and double as a
+    /// raw-vs-adjusted comparison of the hand cubes. The Trackers pill was
+    /// removed per review (tracker fallback stays a receiver-driven ops
+    /// action via BridgeControl set_motion). SN binding summary stays. Built
+    /// entirely from code under the panel's existing control rows (no prefab
+    /// edits).
     /// </summary>
     public class ArmSourcePanelRow
     {
@@ -24,17 +26,15 @@ namespace PicoBridge.UI
 
         private readonly Button _glovesButton;
         private readonly Button _heldButton;
-        private readonly Button _trackersButton;
         private readonly TMP_Text _snText;
         private readonly RectTransform _rowRect;
 
         private ArmSourcePanelRow(
-            Button glovesButton, Button heldButton, Button trackersButton,
+            Button glovesButton, Button heldButton,
             TMP_Text snText, RectTransform rowRect)
         {
             _glovesButton = glovesButton;
             _heldButton = heldButton;
-            _trackersButton = trackersButton;
             _snText = snText;
             _rowRect = rowRect;
         }
@@ -45,8 +45,7 @@ namespace PicoBridge.UI
         public static ArmSourcePanelRow Build(
             RectTransform templateRow,
             Action onRequestGloves,
-            Action onRequestHeld,
-            Action onRequestTrackers)
+            Action onRequestHeld)
         {
             if (templateRow == null)
                 return null;
@@ -83,18 +82,16 @@ namespace PicoBridge.UI
 
             var glovesButton = MakePill(rowObject.transform, "Gloves", onRequestGloves);
             var heldButton = MakePill(rowObject.transform, "Held", onRequestHeld);
-            var trackersButton = MakePill(rowObject.transform, "Trackers", onRequestTrackers, demoted: true);
             var snText = MakeSnText(rowObject.transform);
 
-            return new ArmSourcePanelRow(glovesButton, heldButton, trackersButton, snText, rowRect);
+            return new ArmSourcePanelRow(glovesButton, heldButton, snText, rowRect);
         }
 
         /// <summary>Refresh pill selection and the SN summary.</summary>
-        public void Refresh(bool bodyActive, bool correctionEnabled, bool motionActive, string snSummary)
+        public void Refresh(bool bodyActive, bool correctionEnabled, string snSummary)
         {
             SetSelected(_glovesButton, bodyActive && correctionEnabled);
             SetSelected(_heldButton, bodyActive && !correctionEnabled);
-            SetSelected(_trackersButton, motionActive);
             if (_snText != null)
             {
                 _snText.text = snSummary ?? "--";

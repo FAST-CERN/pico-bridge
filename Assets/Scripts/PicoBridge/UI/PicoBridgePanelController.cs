@@ -167,12 +167,6 @@ namespace PicoBridge.UI
                         manager.RequestBodyMode();
                     Tracking.BodyMountCorrection.SetEnabled(false);
                     RefreshArmSourceControl();
-                },
-                onRequestTrackers: () =>
-                {
-                    if (manager != null)
-                        manager.RequestTrackersMode();
-                    RefreshArmSourceControl();
                 });
         }
 
@@ -184,7 +178,6 @@ namespace PicoBridge.UI
             _armSourceRow.Refresh(
                 manager.sendBody,
                 Tracking.BodyMountCorrection.Enabled,
-                manager.sendMotion,
                 Tracking.MotionTrackerBinding.DescribeSides());
         }
 
@@ -206,8 +199,9 @@ namespace PicoBridge.UI
             var entry = Tracking.BodyMountCorrection.GetSide(side);
             if (entry == null)
                 return;
-            float yaw = isYaw ? Mathf.Clamp(entry.yaw + delta, -MountCalibPanelRow.MaxDegrees, MountCalibPanelRow.MaxDegrees) : entry.yaw;
-            float level = !isYaw ? Mathf.Clamp(entry.level + delta, -MountCalibPanelRow.MaxDegrees, MountCalibPanelRow.MaxDegrees) : entry.level;
+            float yaw = isYaw ? Mathf.Clamp(entry.yaw + delta, -MountCalibPanelRow.MaxYawDegrees, MountCalibPanelRow.MaxYawDegrees) : entry.yaw;
+            // level is millimetres of axial slide (2026-09-05 UX review).
+            float level = !isYaw ? Mathf.Clamp(entry.level + delta, -MountCalibPanelRow.MaxLevelMillimetres, MountCalibPanelRow.MaxLevelMillimetres) : entry.level;
             Tracking.BodyMountCorrection.SetSide(side, yaw, level);
             _mountCalibRow?.Refresh();
         }

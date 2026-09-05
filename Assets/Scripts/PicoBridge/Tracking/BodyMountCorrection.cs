@@ -7,26 +7,22 @@ namespace PicoBridge.Tracking
 {
     /// <summary>
     /// Strapped-controller mount correction applied to body-tracking output
-    /// (bodytrack-deploy t07). With controllers strapped to the hand backs the
-    /// PICO solver's held-grip assumption leaves a constant transform error on
-    /// the Wrist/Hand joints, and the SDK has no per-joint calibration entry
-    /// (map research: post-output correction is the only correction layer).
-    /// Moving it here (from the Teleopit provider) means the in-headset
-    /// visualisation shows the corrected result the robot will receive.
+    /// (bodytrack-deploy t07; semantics revised t08 UX round). With
+    /// controllers strapped to the hand backs the PICO solver's held-grip
+    /// assumption leaves a constant transform error on the Wrist/Hand joints,
+    /// and the SDK has no per-joint calibration entry (map research:
+    /// post-output correction is the only correction layer).
     ///
-    /// Model — mirrors Teleopit's _apply_body_mount_correction exactly so
-    /// fitted constants transfer 1:1 (same post-flip joint frame):
+    /// Model (operator-defined from in-headset observation, 2026-09-05):
+    /// both knobs act on the hand block's own vertical (long) axis —
     ///
-    ///   q' = q * Quaternion.Euler(level, yaw, 0)   (right-multiplied, joint-local)
-    ///   p' = p - q' * t                             (t constant per side)
+    ///   q' = q * AngleAxis(yawDeg, localUp)   (twist about the axis)
+    ///   p' = p - q' * (0, levelMilli * 0.001, 0)   (slide along the axis)
     ///
-    /// yaw/level are degrees (operator-tunable, t08 panel knobs + BridgeControl
-    /// set_mount_correction); the translation stays out of the UI and is seeded
-    /// into the local config by the offline fit (Teleopit
-    /// scripts/run/calibrate_body_mount.py). Every write persists to
-    /// persistentDataPath/body_mount_correction.json so values survive
-    /// restarts as the boot default. The Teleopit-side layer stays null in
-    /// live runs — the two layers must not stack.
+    /// yaw is degrees; level is MILLIMETRES of axial slide (the mount error
+    /// is a twist + slide along the hand axis, not a pitch). Writes persist
+    /// to persistentDataPath/body_mount_correction.json as the boot default;
+    /// the Teleopit-side layer stays null in live runs — no stacking.
     /// </summary>
     public static class BodyMountCorrection
     {
@@ -149,10 +145,12 @@ namespace PicoBridge.Tracking
             if (!enabled || entry == null)
                 return false;
 
-            // p' = p - q' * t is evaluated after the rotation so the Wrist ->
-            // Hand segment stays rigid under the same translation constant.
-            rot = rot * Quaternion.Euler(entry.level, entry.yaw, 0f);
-            pos -= rot * entry.translation;
+            // Twist about the hand block's vertical axis, then slide along
+            // that same axis (level in mm; the twist leaves the axis itself
+            // unchanged). Translation from the legacy offline-fit seed is
+            // kept additive for the initial-value path only.
+            rot = rot * Quaternion.AngleAxis(entry.yaw, Vector3.up);
+            pos -= rot * (new Vector3(0f, entry.level * 0.001f, 0f) + entry.translation);
             return true;
         }
 
