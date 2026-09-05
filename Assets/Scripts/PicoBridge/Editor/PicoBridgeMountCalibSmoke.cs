@@ -111,47 +111,47 @@ namespace PicoBridge.Editor
                 Tracking.BodyMountCorrection.LoadForTest(scratch);
                 Check(Tracking.BodyMountCorrection.Enabled, "Gloves pill persisted (enabled=true)");
 
-                // ── t09: body visualizer renders the cached corrected frame ──
-                var vizObject = new GameObject("CalibSmokeViz");
+                // ── t09: SDK avatar driven from the corrected cache ──
+                var avatarPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                    "Packages/com.unity.xr.picoxr/Assets/BuildingBlocks/Prefabs/BodyTracking.prefab");
+                var avatarObject = (GameObject)PrefabUtility.InstantiatePrefab(avatarPrefab);
                 try
                 {
-                    var viz = vizObject.AddComponent<Tracking.BodyTrackingVisualizer>();
+                    var driver = avatarObject.AddComponent<Tracking.BodyTrackingBlockDriver>();
                     Tracking.BodyFrameCache.ResetForTest();
-                    InvokePrivate(viz, "Start");
-                    var content = vizObject.transform.Find("VizContent");
-                    Check(content != null && !content.gameObject.activeSelf, "viz content hidden before first frame");
+                    InvokePrivate(driver, "Start");
+                    var mapped = (int)InvokePrivateField(driver, "_joints", "length");
+                    Check(mapped >= 20, $"avatar joints mapped by enum name ({mapped}/23)");
 
                     var positions = new Vector3[Tracking.BodyFrameCache.JointCount];
                     var rotations = new Quaternion[Tracking.BodyFrameCache.JointCount];
                     for (int i = 0; i < positions.Length; i++)
                     {
-                        positions[i] = new Vector3(0f, 1f, 0f); // every joint 1 m above its parent
+                        positions[i] = new Vector3(0f, 1f, 0f);
                         rotations[i] = Quaternion.identity;
                     }
                     Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup);
-                    InvokePrivate(viz, "Update");
+                    InvokePrivate(driver, "Update");
 
-                    Check(content.gameObject.activeSelf, "viz content live on fresh cache");
-                    var handL = FindDeep(vizObject.transform, "HandCubeL");
-                    var handR = FindDeep(vizObject.transform, "HandCubeR");
-                    Check(handL != null && handR != null, "white hand cubes built (raw-vs-adjusted targets)");
-                    Check(FindDeep(vizObject.transform, "Bone1") == null && FindDeep(vizObject.transform, "WristMarker20") == null,
-                        "skeleton bones/markers removed (UX review)");
-                    // root sits at y=1 and the 8-edge chain to the hands adds 8
-                    Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, $"hand block L at joint-22 pose (y={handL.position.y})");
-                    Check(Mathf.Abs(handR.position.y - 9f) < 1e-3f, $"hand block R at joint-23 pose (y={handR.position.y})");
+                    var leftHand = FindDeep(avatarObject.transform, "LEFT_HAND");
+                    var rightHand = FindDeep(avatarObject.transform, "RIGHT_HAND");
+                    Check(leftHand != null && rightHand != null, "SDK hand nodes present (white cubes)");
+                    Check((leftHand.localPosition - new Vector3(0f, 1f, 0f)).magnitude < 1e-4f,
+                        $"avatar left hand driven from corrected cache ({leftHand.localPosition})");
+                    Check((rightHand.localPosition - new Vector3(0f, 1f, 0f)).magnitude < 1e-4f,
+                        "avatar right hand driven from corrected cache");
 
-                    // stale cache -> grey ghost, last pose kept
-                    Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup - 5f);
-                    InvokePrivate(viz, "Update");
-                    var ghostColor = FindDeep(vizObject.transform, "HandCubeL").GetComponent<Renderer>().sharedMaterial.color;
-                    Check(content.gameObject.activeSelf && ghostColor.g > 0.39f && ghostColor.g < 0.41f && ghostColor.r > 0.39f,
-                        $"stale cache mutes colors to grey ghost (g={ghostColor.g:0.00})");
-                    Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, "ghost keeps the last pose");
+                    // second frame moves the avatar with the output
+                    for (int i = 0; i < positions.Length; i++)
+                        positions[i] = new Vector3(0.05f, 0f, 0f);
+                    Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup);
+                    InvokePrivate(driver, "Update");
+                    Check(Mathf.Abs(leftHand.localPosition.x - 0.05f) < 1e-4f,
+                        "avatar follows cache updates (steppers move the cubes)");
                 }
                 finally
                 {
-                    UnityEngine.Object.DestroyImmediate(vizObject);
+                    UnityEngine.Object.DestroyImmediate(avatarObject);
                     Tracking.BodyFrameCache.ResetForTest();
                 }
             }
@@ -177,6 +177,16 @@ namespace PicoBridge.Editor
                     return found;
             }
             return null;
+        }
+
+        private static object InvokePrivateField(object target, string field, string action)
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            var info = target.GetType().GetField(field, flags);
+            if (info == null)
+                throw new InvalidOperationException($"[CALIBSMOKE] FAIL: field {target.GetType().Name}.{field} not found");
+            var array = info.GetValue(target) as Array;
+            return array.Length;
         }
 
         private static void InvokePrivate(object target, string method, params object[] args)
