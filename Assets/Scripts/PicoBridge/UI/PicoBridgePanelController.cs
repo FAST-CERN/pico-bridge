@@ -18,6 +18,7 @@ namespace PicoBridge.UI
         private bool _cameraPreviewRequested;
         private bool _cameraSignalVisible;
         private ArmSourcePanelRow _armSourceRow;
+        private MountCalibPanelRow _mountCalibRow;
         private bool _hasExpandedRect;
         private Vector2 _expandedAnchorMin;
         private Vector2 _expandedAnchorMax;
@@ -65,6 +66,7 @@ namespace PicoBridge.UI
             ConfigureServerUrlControl();
             ConfigureResolutionControl();
             ConfigureArmSourceControl();
+            ConfigureMountCalibControls();
         }
 
         private void Start()
@@ -170,6 +172,30 @@ namespace PicoBridge.UI
                 return;
 
             _armSourceRow.Refresh(manager.sendBody, Tracking.MotionTrackerBinding.DescribeSides());
+        }
+
+        // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level
+        // ±5° under the arm-source row. Clicks write straight into the t07
+        // correction store (applies next frame + persists as boot default);
+        // the receiver sees the Wrist/Hand joints move as you tap.
+        private void ConfigureMountCalibControls()
+        {
+            if (_armSourceRow == null || _armSourceRow.RowRect == null)
+                return;
+
+            _mountCalibRow = MountCalibPanelRow.Build(_armSourceRow.RowRect, AdjustMountCorrection);
+            _mountCalibRow?.Refresh();
+        }
+
+        private void AdjustMountCorrection(string side, bool isYaw, float delta)
+        {
+            var entry = Tracking.BodyMountCorrection.GetSide(side);
+            if (entry == null)
+                return;
+            float yaw = isYaw ? Mathf.Clamp(entry.yaw + delta, -MountCalibPanelRow.MaxDegrees, MountCalibPanelRow.MaxDegrees) : entry.yaw;
+            float level = !isYaw ? Mathf.Clamp(entry.level + delta, -MountCalibPanelRow.MaxDegrees, MountCalibPanelRow.MaxDegrees) : entry.level;
+            Tracking.BodyMountCorrection.SetSide(side, yaw, level);
+            _mountCalibRow?.Refresh();
         }
 
         // Start-time reflection of the persisted choice (after every Awake).
@@ -362,6 +388,7 @@ namespace PicoBridge.UI
             RefreshTrackingStatus();
             RefreshCameraStatus();
             RefreshArmSourceControl();
+            _mountCalibRow?.Refresh();
         }
 
         private void RefreshConnectionStatus()

@@ -24,13 +24,18 @@ namespace PicoBridge.UI
         private readonly Button _trackersButton;
         private readonly Button _bodyButton;
         private readonly TMP_Text _snText;
+        private readonly RectTransform _rowRect;
 
-        private ArmSourcePanelRow(Button trackersButton, Button bodyButton, TMP_Text snText)
+        private ArmSourcePanelRow(Button trackersButton, Button bodyButton, TMP_Text snText, RectTransform rowRect)
         {
             _trackersButton = trackersButton;
             _bodyButton = bodyButton;
             _snText = snText;
+            _rowRect = rowRect;
         }
+
+        /// <summary>The built row's rect — anchor for rows stacked below (t08).</summary>
+        public RectTransform RowRect => _rowRect;
 
         public static ArmSourcePanelRow Build(
             RectTransform templateRow,
@@ -74,7 +79,7 @@ namespace PicoBridge.UI
             var bodyButton = MakePill(rowObject.transform, "Body", onRequestBody);
             var snText = MakeSnText(rowObject.transform);
 
-            return new ArmSourcePanelRow(trackersButton, bodyButton, snText);
+            return new ArmSourcePanelRow(trackersButton, bodyButton, snText, rowRect);
         }
 
         /// <summary>Refresh pill selection (Body active vs Trackers) and the SN summary.</summary>
