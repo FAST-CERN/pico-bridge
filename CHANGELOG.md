@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.5] - 2026-09-05
+
+### Added
+
+- Mount-correction push (bodytrack-deploy t07): `PicoBridge(mount_correction=...)` /
+  CLI `--mount-correction FILE` pushes `BridgeControl
+  tracking/set_mount_correction` (per-side `yaw`/`level` degrees) to the app
+  on connect; the app applies it post-`AppendBody` on the Wrist/Hand joints
+  and persists it as its boot default. Strictly opt-in — an unconfigured
+  receiver pushes nothing, preserving values tuned in-headset (t08).
+  `PicoBridge.set_mount_correction(params_or_none)` runtime toggle.
+
 ## [0.2.4] - 2026-09-04
 
 ### Added

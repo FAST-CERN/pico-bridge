@@ -11,6 +11,7 @@ CONTROL_TYPE_SET_POLICY = "set_policy"
 CONTROL_CHANNEL_TRACKING = "tracking"
 CONTROL_TYPE_SET_MOTION = "set_motion"
 CONTROL_TYPE_SET_BODY = "set_body"
+CONTROL_TYPE_SET_MOUNT_CORRECTION = "set_mount_correction"
 
 
 def build_control_message(channel: str, message_type: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -52,4 +53,31 @@ def build_body_stream_message(*, enabled: bool, height_m: float = 1.75) -> dict[
         CONTROL_CHANNEL_TRACKING,
         CONTROL_TYPE_SET_BODY,
         {"enabled": bool(enabled), "height": float(height_m)},
+    )
+
+
+def build_mount_correction_message(
+    *,
+    enabled: bool,
+    left: dict[str, float] | None,
+    right: dict[str, float] | None,
+) -> dict[str, Any]:
+    """Push strapped-controller mount-correction params to the app (bodytrack-deploy t07).
+
+    Per-side ``yaw``/``level`` in degrees; the app applies them as a fixed
+    local rotation on the Wrist/Hand body joints and persists the values as
+    its boot default. Sides left as ``None`` are omitted (device keeps its
+    stored values for that side).
+    """
+    payload: dict[str, Any] = {"enabled": bool(enabled)}
+    for side, params in (("left", left), ("right", right)):
+        if params is not None:
+            payload[side] = {
+                "yaw": float(params.get("yaw", 0.0)),
+                "level": float(params.get("level", 0.0)),
+            }
+    return build_control_message(
+        CONTROL_CHANNEL_TRACKING,
+        CONTROL_TYPE_SET_MOUNT_CORRECTION,
+        payload,
     )

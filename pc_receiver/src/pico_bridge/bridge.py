@@ -50,6 +50,7 @@ class PicoBridge:
         motion_enabled: bool = False,
         arm_source: str | None = None,
         operator_height_m: float = 1.75,
+        mount_correction: dict[str, Any] | None = None,
         auto_fallback_s: float = 15.0,
         print_tracking: bool = False,
         history_size: int = 120,
@@ -65,6 +66,7 @@ class PicoBridge:
         self.motion_enabled = bool(motion_enabled)
         self.arm_source = _normalize_arm_source(arm_source)
         self.operator_height_m = float(operator_height_m)
+        self.mount_correction = dict(mount_correction) if mount_correction is not None else None
         self.auto_fallback_s = float(auto_fallback_s)
         if self.video_enabled and self.video is None:
             raise ValueError("video_enabled=True requires video='frames' or video='test-pattern'")
@@ -202,6 +204,27 @@ class PicoBridge:
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         future.result()
 
+    def set_mount_correction(self, params: dict[str, Any] | None) -> None:
+        """Push mount-correction params to the app (bodytrack-deploy t07).
+
+        ``None`` clears the configured state so later connects push nothing
+        (device-side tuned values survive). No-op before start / disconnect.
+        """
+        self.mount_correction = dict(params) if params is not None else None
+
+        runtime = self._runtime
+        loop = self._loop
+        if runtime is None or loop is None or not loop.is_running():
+            return
+
+        coro = runtime.set_mount_correction(self.mount_correction)
+        if self._thread is threading.current_thread():
+            loop.create_task(coro)
+            return
+
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        future.result()
+
     def stats(self) -> PicoBridgeStats:
         frame_stats = self._frame_store.stats()
         runtime = self._runtime
@@ -234,6 +257,7 @@ class PicoBridge:
             motion_enabled=self.motion_enabled,
             arm_source=self.arm_source,
             operator_height_m=self.operator_height_m,
+            mount_correction=self.mount_correction,
             auto_fallback_s=self.auto_fallback_s,
             frame_store=self._frame_store,
             print_tracking=self.print_tracking,

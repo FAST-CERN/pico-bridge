@@ -192,8 +192,16 @@ namespace PicoBridge.Tracking
                 p += rootOffset;
                 p.x += Mathf.Sin(time * 0.9f + i) * 0.015f;
                 p.z += Mathf.Cos(time * 0.7f + i) * 0.010f;
+                var rot = Quaternion.identity;
+
+                // Editor preview parity: the mock rides the same mount
+                // correction as the device collector so calibrating against
+                // the editor stream behaves like the deployed one
+                // (identity defaults keep golden values unchanged).
+                BodyMountCorrection.Apply(i, ref p, ref rot);
+
                 sb.Append("{\"p\":\"");
-                AppendPose(sb, p.x, p.y, p.z, 0f, 0f, 0f, 1f);
+                AppendPose(sb, p.x, p.y, p.z, rot.x, rot.y, rot.z, rot.w);
                 sb.Append($"\",\"t\":{i},\"va\":\"0,0,0,0,0,0\",\"wva\":\"0,0,0,0,0,0\"}}");
             }
 

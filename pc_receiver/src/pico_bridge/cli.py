@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from .bridge import PicoBridge
@@ -15,6 +18,49 @@ from .recording import TrackingRecorder
 _viz_push: Any = None  # set to visualiser.push_frame when --viz is active
 _STATUS_INTERVAL_SECONDS = 5.0
 log = logging.getLogger("pico_bridge.cli")
+
+_MOUNT_CORRECTION_SIDES = ("left", "right")
+
+
+def load_mount_correction(path: str) -> dict[str, Any]:
+    """Read a mount-correction JSON for --mount-correction (bodytrack-deploy t07).
+
+    Shape: ``{"enabled": bool, "left"/"right": {"yaw": deg, "level": deg}}``
+    (sides optional; missing yaw/level default to 0). Raises SystemExit with
+    a readable message on malformed files so CLI users see the problem, not
+    a traceback.
+    """
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"error: --mount-correction {path}: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    if not isinstance(raw, dict):
+        print(f"error: --mount-correction {path}: top level must be a JSON object", file=sys.stderr)
+        raise SystemExit(2)
+
+    params: dict[str, Any] = {"enabled": bool(raw.get("enabled", True))}
+    for side in _MOUNT_CORRECTION_SIDES:
+        entry = raw.get(side)
+        if entry is None:
+            continue
+        if not isinstance(entry, dict):
+            print(f"error: --mount-correction {path}: '{side}' must be an object", file=sys.stderr)
+            raise SystemExit(2)
+        normalized: dict[str, float] = {}
+        for key in ("yaw", "level"):
+            value = entry.get(key, 0.0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                print(
+                    f"error: --mount-correction {path}: '{side}.{key}' must be a number, "
+                    f"got {value!r}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+            normalized[key] = float(value)
+        params[side] = normalized
+    return params
 
 
 def _visualiser_enabled(args: argparse.Namespace) -> bool:
@@ -95,6 +141,9 @@ async def _run(args: argparse.Namespace) -> None:
         motion_enabled=args.motion_trackers or args.arm_source == "auto",
         arm_source=args.arm_source,
         operator_height_m=args.operator_height,
+        mount_correction=load_mount_correction(args.mount_correction)
+        if args.mount_correction is not None
+        else None,
         print_tracking=args.print_tracking,
         on_raw_tracking=_build_raw_tracking_callback(viz_enabled=viz_enabled, recorder=recorder),
     )
@@ -325,6 +374,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.75,
         help="Operator height in meters (body-tracking bone lengths, default 1.75)",
+    )
+    parser.add_argument(
+        "--mount-correction",
+        metavar="FILE",
+        help=(
+            "Push strapped-controller mount correction to the app on connect "
+            "(JSON: {\"enabled\": bool, \"left\"/\"right\": {\"yaw\": deg, \"level\": deg}}; "
+            "app persists values as its boot default). Omit to keep device-tuned values"
+        ),
     )
     parser.add_argument(
         "--record",

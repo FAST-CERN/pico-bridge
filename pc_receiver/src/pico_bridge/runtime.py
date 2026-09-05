@@ -12,6 +12,7 @@ from .camera_request import CameraRequest
 from .control import (
     CONTROL_FUNCTION_NAME,
     build_body_stream_message,
+    build_mount_correction_message,
     build_motion_stream_message,
     build_video_policy_message,
 )
@@ -52,6 +53,7 @@ class PicoBridgeRuntime:
         motion_enabled: bool = False,
         arm_source: str = "tracker",
         operator_height_m: float = 1.75,
+        mount_correction: dict[str, Any] | None = None,
         auto_fallback_s: float = 15.0,
         clock: Callable[[], float] | None = None,
         frame_store: FrameStore,
@@ -71,6 +73,9 @@ class PicoBridgeRuntime:
         self._motion_enabled = bool(motion_enabled)
         self._arm_source = str(arm_source)
         self._operator_height_m = float(operator_height_m)
+        self._mount_correction: dict[str, Any] | None = (
+            dict(mount_correction) if mount_correction is not None else None
+        )
         self._auto_fallback_s = float(auto_fallback_s)
         self._clock = clock or time.monotonic
         self._body_enabled = self._arm_source == "body"
@@ -181,6 +186,16 @@ class PicoBridgeRuntime:
             self._operator_height_m = float(height_m)
         await self._send_body_state()
 
+    async def set_mount_correction(self, params: dict[str, Any] | None) -> None:
+        """Push strapped-controller mount-correction params to the app (t07).
+
+        ``None`` clears the configured state (subsequent connects push
+        nothing, preserving values tuned in-headset and persisted on the
+        device). Only pushes when a device is connected.
+        """
+        self._mount_correction = dict(params) if params is not None else None
+        await self._send_mount_correction()
+
     async def _send_motion_state(self) -> None:
         server = self._server
         if server is None or not server.connected:
@@ -197,6 +212,20 @@ class PicoBridgeRuntime:
         await server.send_function(
             CONTROL_FUNCTION_NAME,
             build_body_stream_message(enabled=self._body_enabled, height_m=self._operator_height_m),
+        )
+
+    async def _send_mount_correction(self) -> None:
+        server = self._server
+        if server is None or not server.connected or self._mount_correction is None:
+            return
+        params = self._mount_correction
+        await server.send_function(
+            CONTROL_FUNCTION_NAME,
+            build_mount_correction_message(
+                enabled=bool(params.get("enabled", True)),
+                left=params.get("left"),
+                right=params.get("right"),
+            ),
         )
 
     @property
@@ -266,6 +295,7 @@ class PicoBridgeRuntime:
         await self._send_motion_state()
         if self._arm_source == "body":
             await self._send_body_state()
+        await self._send_mount_correction()
 
     async def _send_video_policy(self) -> None:
         server = self._server

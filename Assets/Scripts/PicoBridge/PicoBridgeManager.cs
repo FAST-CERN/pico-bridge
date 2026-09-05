@@ -77,6 +77,11 @@ namespace PicoBridge
 
         private void Awake()
         {
+            // Mount-correction config must load on the main thread
+            // (persistentDataPath) before any BridgeControl or collector
+            // touch can race it from the TCP receive thread.
+            Tracking.BodyMountCorrection.EnsureLoaded();
+
             _tcp = gameObject.AddComponent<PicoTcpClient>();
             _tcp.serverAddress = serverAddress;
             _tcp.serverPort = serverPort;
@@ -324,6 +329,39 @@ namespace PicoBridge
                 }
                 Debug.Log($"[PicoBridge] BridgeControl: set_body={enabled} height={operatorHeight:0.00}");
             }
+
+            // Mount-correction params (bodytrack-deploy t07): per-side
+            // yaw/level degrees applied post-AppendBody on the Wrist/Hand
+            // joints. Remote push persists on-device as the boot default
+            // (in-headset knobs, t08, write the same store). Sides absent
+            // from the payload keep their stored values.
+            if (channel == "tracking" && type == "set_mount_correction")
+            {
+                bool correctionEnabled = ExtractBool(json, "enabled") ?? true;
+                Tracking.BodyMountCorrection.SetEnabled(correctionEnabled);
+                ApplyMountCorrectionSide(json, "left");
+                ApplyMountCorrectionSide(json, "right");
+                Debug.Log($"[PicoBridge] BridgeControl: set_mount_correction enabled={correctionEnabled} " +
+                          $"L={DescribeMountCorrectionSide("left")} R={DescribeMountCorrectionSide("right")}");
+            }
+        }
+
+        private static void ApplyMountCorrectionSide(string json, string side)
+        {
+            string sideJson = ExtractObject(json, side);
+            if (sideJson.Length == 0)
+                return;
+            float? yaw = ExtractFloat(sideJson, "yaw");
+            float? level = ExtractFloat(sideJson, "level");
+            if (!yaw.HasValue && !level.HasValue)
+                return;
+            Tracking.BodyMountCorrection.SetSide(side, yaw ?? 0f, level ?? 0f);
+        }
+
+        private static string DescribeMountCorrectionSide(string side)
+        {
+            var entry = Tracking.BodyMountCorrection.GetSide(side);
+            return entry == null ? "--" : $"yaw {entry.yaw:0.#} level {entry.level:0.#}";
         }
 
         /// <summary>
@@ -407,6 +445,31 @@ namespace PicoBridge
                     return result.ToString();
                 else
                     result.Append(c);
+            }
+            return string.Empty;
+        }
+
+        /// <summary>Inner JSON of a nested object value ("" when absent), so the
+        /// flat ExtractX helpers can run scoped inside payload sub-objects.</summary>
+        private static string ExtractObject(string json, string key)
+        {
+            string needle = $"\"{key}\"";
+            int keyIndex = json.IndexOf(needle, System.StringComparison.Ordinal);
+            if (keyIndex < 0) return string.Empty;
+            int open = json.IndexOf('{', keyIndex + needle.Length);
+            if (open < 0) return string.Empty;
+            int depth = 0;
+            for (int i = open; i < json.Length; i++)
+            {
+                switch (json[i])
+                {
+                    case '{': depth++; break;
+                    case '}':
+                        depth--;
+                        if (depth == 0)
+                            return json.Substring(open + 1, i - open - 1);
+                        break;
+                }
             }
             return string.Empty;
         }
