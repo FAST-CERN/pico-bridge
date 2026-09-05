@@ -42,7 +42,7 @@ namespace PicoBridge.Immersive
             _text.font = font;
             _text.fontSize = 14;
             _text.alignment = TextAlignmentOptions.Center;
-            _text.text = "Grip (right controller) to exit";
+            _text.text = "Hold grip (right controller) to exit";
             _text.color = new Color(0.92f, 0.96f, 0.98f, 0.85f);
             _text.raycastTarget = false;
             _text.rectTransform.sizeDelta = new Vector2(60f, 6f);

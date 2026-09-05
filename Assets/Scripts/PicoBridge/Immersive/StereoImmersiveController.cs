@@ -8,8 +8,10 @@ namespace PicoBridge.Immersive
     /// <summary>
     /// Entry/exit logic for the stereo immersive FPV mode: toggles the
     /// StereoImmersiveRig on, feeds it the WebRTC SBS texture, and hides the
-    /// bridge panel while active. Enter from the panel button, exit with
-    /// either controller grip button.
+    /// bridge panel while active. Enter from the panel button; exit by
+    /// holding the grip for ~exitHoldSeconds — the hold must START while
+    /// immersive, so a strap pressing the grip (deploy-map hand-back mount)
+    /// can neither block entry nor instantly exit.
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(StereoImmersiveRig))]
@@ -31,6 +33,16 @@ namespace PicoBridge.Immersive
         [SerializeField] private bool hidePanel = true;
         [Tooltip("Grip button that exits immersive mode.")]
         [SerializeField] private InputDeviceCharacteristics exitHand = InputDeviceCharacteristics.Right;
+        [Tooltip("How long the exit grip must be held (seconds) after a fresh press to exit.")]
+        [SerializeField] private float exitHoldSeconds = 0.8f;
+
+        // Exit-gesture state: a grip already down at entry (strapped to the
+        // hand back, the deploy-map mount, the binding presses it) must not
+        // read as an exit press — only a press that STARTS while immersive,
+        // held continuously for exitHoldSeconds, exits. Flicker from strap
+        // pressure changes stays under the sustain window.
+        private bool _gripWasDown;
+        private float _gripDownSince = -1f;
 
         public bool IsImmersiveActive { get; private set; }
 
@@ -53,11 +65,13 @@ namespace PicoBridge.Immersive
         {
             if (!IsImmersiveActive) return;
 
-            // Exit: controller grip button.
+            // Exit: a grip press that starts while immersive and is held for
+            // exitHoldSeconds (edge + sustain, see the fields above).
             var hand = InputDevices.GetDeviceAtXRNode(
                 exitHand == InputDeviceCharacteristics.Left ? XRNode.LeftHand : XRNode.RightHand);
-            if (hand.isValid &&
-                hand.TryGetFeatureValue(CommonUsages.gripButton, out bool grip) && grip)
+            bool gripDown = hand.isValid &&
+                hand.TryGetFeatureValue(CommonUsages.gripButton, out bool grip) && grip;
+            if (ShouldExitOnGrip(gripDown, Time.realtimeSinceStartup))
             {
                 SetImmersive(false);
                 return;
@@ -72,6 +86,18 @@ namespace PicoBridge.Immersive
                 rig.SetVideoTexture(texture);
             if (loadingSpinner != null)
                 loadingSpinner.Visible = texture == null;
+        }
+
+        /// <summary>Edge + sustain filter for the exit grip. Returns true when a
+        /// grip press that started while immersive has been held long enough.</summary>
+        private bool ShouldExitOnGrip(bool gripDown, float now)
+        {
+            if (gripDown && !_gripWasDown)
+                _gripDownSince = now;
+            else if (!gripDown)
+                _gripDownSince = -1f;
+            _gripWasDown = gripDown;
+            return _gripDownSince > 0f && now - _gripDownSince >= exitHoldSeconds;
         }
 
         /// <summary>Panel button entry point (also usable from code).</summary>
@@ -101,6 +127,12 @@ namespace PicoBridge.Immersive
         private void SetImmersive(bool active)
         {
             IsImmersiveActive = active;
+
+            // Swallow a grip that is already down at entry (strapped to the
+            // hand back it is held permanently): no exit until it is released
+            // once and pressed again for exitHoldSeconds.
+            _gripWasDown = true;
+            _gripDownSince = -1f;
             rig.enabled = active;
             foreach (Transform child in transform)
                 child.gameObject.SetActive(active);
