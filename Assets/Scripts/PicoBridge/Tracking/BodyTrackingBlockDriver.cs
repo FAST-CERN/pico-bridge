@@ -14,10 +14,16 @@ namespace PicoBridge.Tracking
     /// StartBodyTracking is never called), so this driver is the only writer:
     /// what the avatar shows is exactly what the robot receives — raw in Held
     /// mode, adjusted in Gloves mode — and the steppers move it directly.
+    ///
+    /// Placement: co-located with the operator (2026-09-05 review round 3) —
+    /// the avatar's HEAD node is glued to the real headset every frame (root
+    /// yaw follows the head), so the whole body overlays the real one and the
+    /// hand cubes sit on the real hand backs for direct comparison. Not a
+    /// floating figure in front.
     /// </summary>
     public class BodyTrackingBlockDriver : MonoBehaviour
     {
-        private const float RigDistance = 1.6f;
+        private const int HeadRole = (int)BodyTrackerRole.HEAD;
 
         private readonly Transform[] _joints = new Transform[BodyFrameCache.JointCount];
         private Transform _root;
@@ -72,18 +78,7 @@ namespace PicoBridge.Tracking
             if (hidden || !BodyFrameCache.HasData)
                 return;
 
-            // Head-follow placement: the avatar floats ahead of the user at
-            // 1:1 so the hands sit next to the real ones.
             var cam = UnityEngine.Camera.main;
-            if (cam != null)
-            {
-                Vector3 forward = cam.transform.forward;
-                forward.y = 0f;
-                if (forward.sqrMagnitude < 1e-4f)
-                    forward = Vector3.forward;
-                transform.position = cam.transform.position + forward.normalized * RigDistance;
-                transform.rotation = Quaternion.LookRotation(-forward.normalized, Vector3.up);
-            }
 
             if (!BodyFrameCache.TryGetFrame(_positions, _rotations))
                 return;
@@ -97,6 +92,20 @@ namespace PicoBridge.Tracking
                     continue;
                 joint.localPosition = _positions[i];
                 joint.localRotation = _rotations[i];
+            }
+
+            // Co-locate with the operator: yaw-flatten the head pose, then
+            // shift the whole avatar so its HEAD node sits on the real
+            // headset — the body overlays the real one and the hand cubes
+            // land on the real hand backs for direct comparison.
+            if (cam != null && _joints[HeadRole] != null)
+            {
+                Vector3 forward = cam.transform.forward;
+                forward.y = 0f;
+                if (forward.sqrMagnitude < 1e-4f)
+                    forward = Vector3.forward;
+                transform.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
+                transform.position += cam.transform.position - _joints[HeadRole].position;
             }
         }
     }
