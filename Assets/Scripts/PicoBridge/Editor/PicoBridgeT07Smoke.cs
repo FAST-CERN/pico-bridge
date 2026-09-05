@@ -50,8 +50,9 @@ namespace PicoBridge.Editor
                 InvokePrivate(controller, "ConfigureArmSourceControl");
                 var row = FindDeep(instance.transform, "ArmSourceControl");
                 Check(row != null, "ArmSourceControl row built under panel");
-                Check(row.Find("TrackersButton") != null, "Trackers pill built");
-                Check(row.Find("BodyButton") != null, "Body pill built");
+                Check(row.Find("GlovesButton") != null, "Gloves pill built (deploy t10 rework)");
+                Check(row.Find("HeldButton") != null, "Held pill built");
+                Check(row.Find("TrackersButton") != null, "Trackers pill built (demoted, code kept)");
                 Check(row.Find("TrackerBinding") != null, "SN binding text built");
 
                 // ── manager: receiver-format BridgeControl drives the mutex ──
@@ -60,9 +61,11 @@ namespace PicoBridge.Editor
 
                 SetPrivate(controller, "manager", manager);
                 InvokePrivate(controller, "RefreshArmSourceControl");
+                var glovesPill = row.Find("GlovesButton").GetComponent<Image>();
+                var heldPill = row.Find("HeldButton").GetComponent<Image>();
                 var trackersPill = row.Find("TrackersButton").GetComponent<Image>();
-                var bodyPill = row.Find("BodyButton").GetComponent<Image>();
-                Check(trackersPill.color.g > 0.3f && bodyPill.color.g < 0.3f, "default mode lights Trackers pill, not Body");
+                Check(glovesPill.color.g < 0.3f && heldPill.color.g < 0.3f && trackersPill.color.g < 0.3f,
+                    "default: no pill lit (both streams off, deploy t10 semantics)");
 
                 // Python json.dumps output (receiver wire format) — spacing included.
                 const string setBodyOn =
@@ -74,7 +77,8 @@ namespace PicoBridge.Editor
                 Check(Mathf.Abs(manager.OperatorHeight - 1.82f) < 0.001f, "height 1.82 parsed from payload");
 
                 InvokePrivate(controller, "RefreshArmSourceControl");
-                Check(bodyPill.color.g > 0.3f && trackersPill.color.g < 0.3f, "panel refresh lights Body pill after set_body");
+                Check(glovesPill.color.g > 0.3f && heldPill.color.g < 0.3f && trackersPill.color.g < 0.3f,
+                    "panel refresh lights Gloves pill after set_body (correction default on)");
 
                 const string setMotionOn =
                     "{\"version\": 1, \"channel\": \"tracking\", \"type\": \"set_motion\", " +

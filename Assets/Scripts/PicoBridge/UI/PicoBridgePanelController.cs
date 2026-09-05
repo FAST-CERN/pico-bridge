@@ -152,16 +152,26 @@ namespace PicoBridge.UI
             var templateRow = view.resolution720Button.transform.parent as RectTransform;
             _armSourceRow = ArmSourcePanelRow.Build(
                 templateRow,
+                onRequestGloves: () =>
+                {
+                    // Strapped to the hand backs: correction ON (deploy t10).
+                    if (manager != null)
+                        manager.RequestBodyMode();
+                    Tracking.BodyMountCorrection.SetEnabled(true);
+                    RefreshArmSourceControl();
+                },
+                onRequestHeld: () =>
+                {
+                    // Normal grip: body output stays native, correction OFF.
+                    if (manager != null)
+                        manager.RequestBodyMode();
+                    Tracking.BodyMountCorrection.SetEnabled(false);
+                    RefreshArmSourceControl();
+                },
                 onRequestTrackers: () =>
                 {
                     if (manager != null)
                         manager.RequestTrackersMode();
-                    RefreshArmSourceControl();
-                },
-                onRequestBody: () =>
-                {
-                    if (manager != null)
-                        manager.RequestBodyMode();
                     RefreshArmSourceControl();
                 });
         }
@@ -171,7 +181,11 @@ namespace PicoBridge.UI
             if (_armSourceRow == null || manager == null)
                 return;
 
-            _armSourceRow.Refresh(manager.sendBody, Tracking.MotionTrackerBinding.DescribeSides());
+            _armSourceRow.Refresh(
+                manager.sendBody,
+                Tracking.BodyMountCorrection.Enabled,
+                manager.sendMotion,
+                Tracking.MotionTrackerBinding.DescribeSides());
         }
 
         // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level

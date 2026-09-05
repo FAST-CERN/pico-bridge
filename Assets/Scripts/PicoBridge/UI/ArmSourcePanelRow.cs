@@ -6,13 +6,14 @@ using UnityEngine.UI;
 namespace PicoBridge.UI
 {
     /// <summary>
-    /// Code-built panel row for the arm-source mode mutex (mocap map t07).
-    ///
-    /// Two pills ("Trackers" / "Body") plus the motion-tracker SN binding
-    /// summary. Built entirely from code under the panel's existing control
-    /// rows (no prefab edits): if the grandparent stacks rows with a vertical
-    /// layout group the row slots in under the server-URL row; otherwise it
-    /// clones that row's rect and offsets below it.
+    /// Code-built panel row for the arm-source mode mutex (mocap t07;
+    /// reworked bodytrack-deploy t10): "Gloves" (controllers strapped to the
+    /// hand backs, mount correction ON) vs "Held" (normal grip, correction
+    /// OFF) — both PICO body mode, the pills are the correction enable
+    /// switch. The Trackers fallback pill is demoted to a secondary item
+    /// (code kept; the tracker path remains a receiver-driven ops action).
+    /// SN binding summary stays. Built entirely from code under the panel's
+    /// existing control rows (no prefab edits).
     /// </summary>
     public class ArmSourcePanelRow
     {
@@ -21,15 +22,19 @@ namespace PicoBridge.UI
         private static readonly Color TextColor = new Color(0.94f, 0.975f, 0.985f, 1f);
         private static readonly Color MutedTextColor = new Color(0.66f, 0.72f, 0.75f, 1f);
 
+        private readonly Button _glovesButton;
+        private readonly Button _heldButton;
         private readonly Button _trackersButton;
-        private readonly Button _bodyButton;
         private readonly TMP_Text _snText;
         private readonly RectTransform _rowRect;
 
-        private ArmSourcePanelRow(Button trackersButton, Button bodyButton, TMP_Text snText, RectTransform rowRect)
+        private ArmSourcePanelRow(
+            Button glovesButton, Button heldButton, Button trackersButton,
+            TMP_Text snText, RectTransform rowRect)
         {
+            _glovesButton = glovesButton;
+            _heldButton = heldButton;
             _trackersButton = trackersButton;
-            _bodyButton = bodyButton;
             _snText = snText;
             _rowRect = rowRect;
         }
@@ -39,8 +44,9 @@ namespace PicoBridge.UI
 
         public static ArmSourcePanelRow Build(
             RectTransform templateRow,
-            Action onRequestTrackers,
-            Action onRequestBody)
+            Action onRequestGloves,
+            Action onRequestHeld,
+            Action onRequestTrackers)
         {
             if (templateRow == null)
                 return null;
@@ -75,18 +81,20 @@ namespace PicoBridge.UI
             layout.childControlWidth = true;
             layout.childControlHeight = true;
 
-            var trackersButton = MakePill(rowObject.transform, "Trackers", onRequestTrackers);
-            var bodyButton = MakePill(rowObject.transform, "Body", onRequestBody);
+            var glovesButton = MakePill(rowObject.transform, "Gloves", onRequestGloves);
+            var heldButton = MakePill(rowObject.transform, "Held", onRequestHeld);
+            var trackersButton = MakePill(rowObject.transform, "Trackers", onRequestTrackers, demoted: true);
             var snText = MakeSnText(rowObject.transform);
 
-            return new ArmSourcePanelRow(trackersButton, bodyButton, snText, rowRect);
+            return new ArmSourcePanelRow(glovesButton, heldButton, trackersButton, snText, rowRect);
         }
 
-        /// <summary>Refresh pill selection (Body active vs Trackers) and the SN summary.</summary>
-        public void Refresh(bool bodyActive, string snSummary)
+        /// <summary>Refresh pill selection and the SN summary.</summary>
+        public void Refresh(bool bodyActive, bool correctionEnabled, bool motionActive, string snSummary)
         {
-            SetSelected(_trackersButton, !bodyActive);
-            SetSelected(_bodyButton, bodyActive);
+            SetSelected(_glovesButton, bodyActive && correctionEnabled);
+            SetSelected(_heldButton, bodyActive && !correctionEnabled);
+            SetSelected(_trackersButton, motionActive);
             if (_snText != null)
             {
                 _snText.text = snSummary ?? "--";
@@ -94,15 +102,16 @@ namespace PicoBridge.UI
             }
         }
 
-        private static Button MakePill(Transform parent, string label, Action onClick)
+        private static Button MakePill(Transform parent, string label, Action onClick, bool demoted = false)
         {
             var pillObject = new GameObject(label + "Button", typeof(RectTransform), typeof(Image), typeof(Button));
             pillObject.transform.SetParent(parent, false);
 
+            float width = demoted ? 82f : 110f;
             var layout = pillObject.AddComponent<LayoutElement>();
-            layout.minWidth = 110f;
+            layout.minWidth = width;
             layout.minHeight = 44f;
-            layout.preferredWidth = 110f;
+            layout.preferredWidth = width;
             layout.preferredHeight = 44f;
 
             var image = pillObject.GetComponent<Image>();
@@ -120,9 +129,9 @@ namespace PicoBridge.UI
             labelRect.sizeDelta = Vector2.zero;
             var text = labelObject.GetComponent<TextMeshProUGUI>();
             text.text = label;
-            text.fontSize = 26f;
+            text.fontSize = demoted ? 21f : 26f;
             text.alignment = TextAlignmentOptions.Center;
-            text.color = TextColor;
+            text.color = demoted ? MutedTextColor : TextColor;
 
             return button;
         }

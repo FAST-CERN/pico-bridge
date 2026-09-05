@@ -233,6 +233,11 @@ namespace PicoBridge.Tracking
                     -(float)rd.localPose.RotQw);
                 BodyMountCorrection.Apply(i, ref pos, ref rot);
 
+                // Same corrected poses feed the in-app visualizer (t09): the
+                // operator watches what the robot receives, correction
+                // included.
+                BodyFrameCache.SetJoint(i, pos, rot, Time.realtimeSinceStartup);
+
                 _sb.Append("{\"p\":\"");
                 AppendPose(pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w);
                 _sb.Append($"\",\"t\":{rd.localPose.TimeStamp}");

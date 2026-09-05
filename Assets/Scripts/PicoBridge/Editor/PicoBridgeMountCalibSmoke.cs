@@ -91,6 +91,67 @@ namespace PicoBridge.Editor
                 buttonsL[1].onClick.Invoke();
                 left = Tracking.BodyMountCorrection.GetSide("left");
                 Check(Mathf.Abs(left.yaw - 90f) < 1e-4f, "yaw clamps at +90 deg");
+
+                // ── t10: Gloves/Held pills are the correction enable switch ──
+                var armRow = FindDeep(instance.transform, "ArmSourceControl");
+                Check(armRow != null, "arm-source row built");
+                var gloves = armRow.Find("GlovesButton").GetComponent<Button>();
+                var held = armRow.Find("HeldButton").GetComponent<Button>();
+                Check(Tracking.BodyMountCorrection.Enabled, "correction default on (gloves mount)");
+
+                held.onClick.Invoke();
+                Check(!Tracking.BodyMountCorrection.Enabled && manager.sendBody && !manager.sendMotion,
+                    "Held pill: correction off, body mode on");
+                Tracking.BodyMountCorrection.LoadForTest(scratch);
+                Check(!Tracking.BodyMountCorrection.Enabled, "Held pill persisted (enabled=false)");
+
+                gloves.onClick.Invoke();
+                Check(Tracking.BodyMountCorrection.Enabled && manager.sendBody,
+                    "Gloves pill: correction back on, still body mode");
+                Tracking.BodyMountCorrection.LoadForTest(scratch);
+                Check(Tracking.BodyMountCorrection.Enabled, "Gloves pill persisted (enabled=true)");
+
+                // ── t09: body visualizer renders the cached corrected frame ──
+                var vizObject = new GameObject("CalibSmokeViz");
+                try
+                {
+                    var viz = vizObject.AddComponent<Tracking.BodyTrackingVisualizer>();
+                    Tracking.BodyFrameCache.ResetForTest();
+                    InvokePrivate(viz, "Start");
+                    var content = vizObject.transform.Find("VizContent");
+                    Check(content != null && !content.gameObject.activeSelf, "viz content hidden before first frame");
+
+                    var positions = new Vector3[Tracking.BodyFrameCache.JointCount];
+                    var rotations = new Quaternion[Tracking.BodyFrameCache.JointCount];
+                    for (int i = 0; i < positions.Length; i++)
+                    {
+                        positions[i] = new Vector3(0f, 1f, 0f); // every joint 1 m above its parent
+                        rotations[i] = Quaternion.identity;
+                    }
+                    Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup);
+                    InvokePrivate(viz, "Update");
+
+                    Check(content.gameObject.activeSelf, "viz content live on fresh cache");
+                    var handL = FindDeep(vizObject.transform, "HandBlockL");
+                    var handR = FindDeep(vizObject.transform, "HandBlockR");
+                    Check(handL != null && handR != null, "hand blocks built (L orange / R green)");
+                    // root sits at y=1 and the 8-edge chain to the hands adds 8
+                    Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, $"hand block L at joint-22 pose (y={handL.position.y})");
+                    Check(Mathf.Abs(handR.position.y - 9f) < 1e-3f, $"hand block R at joint-23 pose (y={handR.position.y})");
+
+                    // stale cache -> grey ghost, last pose kept
+                    Tracking.BodyFrameCache.SetFrameForTest(positions, rotations, Time.realtimeSinceStartup - 5f);
+                    InvokePrivate(viz, "Update");
+                    var ghostColor = FindDeep(vizObject.transform, "HandBlockL").GetComponent<Renderer>().sharedMaterial.color;
+                    Check(content.gameObject.activeSelf && ghostColor.g > 0.39f && ghostColor.g < 0.41f && ghostColor.r > 0.39f,
+                        $"stale cache mutes colors to grey ghost (g={ghostColor.g:0.00})");
+                    Check(Mathf.Abs(handL.position.y - 9f) < 1e-3f, "ghost keeps the last pose");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(vizObject);
+                    Tracking.BodyFrameCache.ResetForTest();
+                }
             }
             finally
             {
