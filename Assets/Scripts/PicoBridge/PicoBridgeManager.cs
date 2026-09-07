@@ -129,6 +129,11 @@ namespace PicoBridge
             // In-headset tracker gizmos (t07 addendum): FOV feedback + mount
             // orientation reference for offset recalibration (pico_tracker_local axes).
             MotionTrackerVisualizer.EnsureCreated(transform);
+            // Single tracker-pose acquisition authority (tracker-ik map t01):
+            // polls both sides into TrackerFrameCache for the wire, gizmos,
+            // and later calibration/IK; also runs the session-status tick
+            // (auto OS-mode guidance once per session).
+            TrackerPosePoller.EnsureCreated(transform);
             // SDK body avatar driven by the corrected output (bodytrack-deploy
             // t09): the operator calibrates against the familiar white cubes.
             BodyTrackingBlockDriver.EnsureCreated();

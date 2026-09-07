@@ -17,8 +17,9 @@ namespace PicoBridge.Tracking
     /// Valid tracking paints the cube in the side color; lost tracking keeps
     /// the last pose as a gray ghost (the operator sees where the tracker
     /// left optical view — the subjective-round FOV blocker made visible).
-    /// Disconnected sides are hidden. The panel SN row mirrors optical state
-    /// via <see cref="MotionTrackerBinding.SetOpticalSample"/> ("?" suffix).
+    /// Disconnected or stale sides are hidden. Since t01 the poses come from
+    /// <see cref="TrackerFrameCache"/> (the poller owns acquisition and feeds
+    /// the panel SN row's optical "?" state).
     /// </summary>
     public class MotionTrackerVisualizer : MonoBehaviour
     {
@@ -84,32 +85,19 @@ namespace PicoBridge.Tracking
 
         private void PollSide(string side, SideGizmo gizmo)
         {
-            if (!MotionTrackerBinding.TryGetConnectedSn(side, out long sn))
+            // t01: render from the shared acquisition cache (the poller owns
+            // sampling + the optical-validity feed); poses arrive already
+            // flipped into pico_tracker_local. Also works in the editor when
+            // tests fill the cache.
+            if (!MotionTrackerBinding.TryGetConnectedSn(side, out long sn) ||
+                !TrackerFrameCache.TryGetFrame(side, out var frame) || frame.Sn != sn ||
+                !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()) || !frame.HasPose)
             {
                 gizmo.Root.SetActive(false);
-                MotionTrackerBinding.SetOpticalSample(side, false);
                 return;
             }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-            MotionTrackerLocation location = default;
-            bool isValid = false;
-            if (PXR_MotionTracking.GetMotionTrackerLocation(sn, ref location, ref isValid) != 0)
-            {
-                MotionTrackerBinding.SetOpticalSample(side, false);
-                return;
-            }
-
-            // pico_tracker_local flip (same as AppendMotion): -Z, -Qz, -Qw.
-            var p = location.pose.Position;
-            var q = location.pose.Orientation;
-            SetGizmoPose(
-                gizmo,
-                new Vector3(p.x, p.y, -p.z),
-                new Quaternion(q.x, q.y, -q.z, -q.w),
-                isValid);
-            MotionTrackerBinding.SetOpticalSample(side, isValid);
-#endif
+            SetGizmoPose(gizmo, frame.Position, frame.Rotation, frame.Valid);
         }
 
         /// <summary>Update pose when valid; keep the last pose as a ghost when lost.</summary>

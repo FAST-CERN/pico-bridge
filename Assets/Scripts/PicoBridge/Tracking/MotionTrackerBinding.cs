@@ -82,6 +82,45 @@ namespace PicoBridge.Tracking
             return sn != Unbound && Connected.Contains(sn);
         }
 
+        /// <summary>Bound SN for the side regardless of connection (status view).</summary>
+        public static bool TryGetBoundSn(string side, out long sn)
+        {
+            sn = side == "left" ? _leftSn : _rightSn;
+            return sn != Unbound;
+        }
+
+        public static bool IsSnConnected(long sn) => Connected.Contains(sn);
+
+        /// <summary>Whether tracker enumeration has been requested this session.</summary>
+        public static bool IsStarted => _started;
+
+        /// <summary>Latest optical-validity sample for the side, if any (poller feed).</summary>
+        public static bool TryGetOpticalSample(string side, out bool valid)
+        {
+            return _opticalValid.TryGetValue(side, out valid);
+        }
+
+        /// <summary>Test seam: install a full binding/connected/started state.</summary>
+        public static void SetBindingStateForTest(bool started, long left, long right, params long[] connected)
+        {
+            _started = started;
+            _leftSn = left;
+            _rightSn = right;
+            Connected.Clear();
+            foreach (long sn in connected)
+                Connected.Add(sn);
+        }
+
+        /// <summary>Test seam: back to pristine (unbound, not started, no samples).</summary>
+        public static void ResetForTest()
+        {
+            _started = false;
+            _leftSn = Unbound;
+            _rightSn = Unbound;
+            Connected.Clear();
+            _opticalValid.Clear();
+        }
+
         /// <summary>
         /// Compact binding summary for the panel (t07): "L:1 R:2" when both
         /// bound and connected, dashes for unbound, "!" suffix when bound but

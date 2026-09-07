@@ -178,7 +178,8 @@ namespace PicoBridge.UI
             _armSourceRow.Refresh(
                 manager.sendBody,
                 Tracking.BodyMountCorrection.Enabled,
-                Tracking.MotionTrackerBinding.DescribeSides());
+                Tracking.MotionTrackerBinding.DescribeSides() +
+                Tracking.TrackerSessionStatus.PanelSuffix());
         }
 
         // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level

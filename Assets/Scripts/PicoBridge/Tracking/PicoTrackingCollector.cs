@@ -305,19 +305,21 @@ namespace PicoBridge.Tracking
 
         private void AppendTrackerSide(string side)
         {
-            if (!MotionTrackerBinding.TryGetConnectedSn(side, out long sn))
+            // t01: the poller is the single acquisition authority — read the
+            // flipped cache instead of polling PXR here. A stale (or absent)
+            // side is omitted so the receiver reports it inactive.
+            if (!TrackerFrameCache.TryGetFrame(side, out var frame) ||
+                !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()))
                 return;
 
-            MotionTrackerLocation location = default;
-            bool isValidPose = false;
-            if (PXR_MotionTracking.GetMotionTrackerLocation(sn, ref location, ref isValidPose) != 0)
-                return;
-
-            var p = location.pose.Position;
-            var q = location.pose.Orientation;
-            _sb.Append($",\"{side}\":{{\"sn\":{sn},\"p\":\"");
-            AppendPose(p.x, p.y, -p.z, q.x, q.y, -q.z, -q.w);
-            _sb.Append($"\",\"valid\":{BoolStr(isValidPose)}}}");
+            // An invalid side that never had a pose serializes a zero pose so
+            // the receiver still sees valid:false (the old inline path's
+            // semantics on optical loss).
+            var p = frame.HasPose ? frame.Position : Vector3.zero;
+            var q = frame.HasPose ? frame.Rotation : Quaternion.identity;
+            _sb.Append($",\"{side}\":{{\"sn\":{frame.Sn},\"p\":\"");
+            AppendPose(p.x, p.y, p.z, q.x, q.y, q.z, q.w);
+            _sb.Append($"\",\"valid\":{BoolStr(frame.Valid)}}}");
         }
 
         // ── helpers ───────────────────────────────────────
