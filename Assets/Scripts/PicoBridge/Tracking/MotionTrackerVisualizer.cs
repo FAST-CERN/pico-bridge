@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Unity.XR.PXR;
 using UnityEngine;
@@ -54,6 +55,9 @@ namespace PicoBridge.Tracking
         private SideGizmo _right;
         private float _sampleTimer;
 
+        /// <summary>Test seam: forces the immersive-FPV visibility rule.</summary>
+        public Func<bool> ImmersiveHideOverride;
+
         /// <summary>Create (or reuse) the visualizer under the manager.</summary>
         public static MotionTrackerVisualizer EnsureCreated(Transform parent)
         {
@@ -89,7 +93,10 @@ namespace PicoBridge.Tracking
             // sampling + the optical-validity feed); poses arrive already
             // flipped into pico_tracker_local. Also works in the editor when
             // tests fill the cache.
-            if (!MotionTrackerBinding.TryGetConnectedSn(side, out long sn) ||
+            // t02: same display rule as the body avatar — hidden while the
+            // stereo immersive FPV screen owns the view.
+            if (ImmersiveHidesVisuals() ||
+                !MotionTrackerBinding.TryGetConnectedSn(side, out long sn) ||
                 !TrackerFrameCache.TryGetFrame(side, out var frame) || frame.Sn != sn ||
                 !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()) || !frame.HasPose)
             {
@@ -98,6 +105,14 @@ namespace PicoBridge.Tracking
             }
 
             SetGizmoPose(gizmo, frame.Position, frame.Rotation, frame.Valid);
+        }
+
+        private bool ImmersiveHidesVisuals()
+        {
+            if (ImmersiveHideOverride != null)
+                return ImmersiveHideOverride();
+            var immersive = FindObjectOfType<PicoBridge.Immersive.StereoImmersiveController>();
+            return immersive != null && immersive.IsImmersiveActive;
         }
 
         /// <summary>Update pose when valid; keep the last pose as a ghost when lost.</summary>
@@ -157,9 +172,9 @@ namespace PicoBridge.Tracking
             cube.name = name;
             var collider = cube.GetComponent<Collider>();
             if (Application.isPlaying)
-                Object.Destroy(collider);
+                UnityEngine.Object.Destroy(collider);
             else
-                Object.DestroyImmediate(collider);
+                UnityEngine.Object.DestroyImmediate(collider);
             cube.transform.SetParent(parent, false);
             cube.transform.localPosition = localPosition;
             cube.transform.localRotation = localRotation;
