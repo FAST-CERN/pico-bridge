@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
@@ -12,10 +13,37 @@ namespace PicoBridge.Editor
         private const string DefaultAndroidApkPath = "/tmp/pico-bridge.apk";
         private const string BuildPathArg = "-picoBridgeBuildPath";
 
+        // Team-wide signing so every machine produces APKs with the same
+        // certificate and `adb install -r` upgrades in place. The keystore is
+        // the repo copy of the original debug key that already-installed
+        // builds were signed with (standard Android debug credentials).
+        private static readonly string SharedKeystorePath =
+            Path.GetFullPath(Path.Combine(Application.dataPath, "..", "keystores", "picobridge.jks"));
+        private const string SharedKeystoreAlias = "androiddebugkey";
+        private const string SharedKeystorePass = "android";
+        private const string SharedKeyaliasPass = "android";
+
         public static void BuildAndroidApkFromCommandLine()
         {
             var outputPath = GetArgumentValue(BuildPathArg, DefaultAndroidApkPath);
+            if (!File.Exists(SharedKeystorePath))
+                throw new InvalidOperationException(
+                    $"Shared signing keystore not found: {SharedKeystorePath}. " +
+                    "Expected keystores/picobridge.jks in the repository root; " +
+                    "see docs/zh/build-and-install.md.");
+
             var preloadedAssets = PlayerSettings.GetPreloadedAssets();
+            var prevUseCustomKeystore = PlayerSettings.Android.useCustomKeystore;
+            var prevKeystoreName = PlayerSettings.Android.keystoreName;
+            var prevKeyaliasName = PlayerSettings.Android.keyaliasName;
+            var prevKeystorePass = PlayerSettings.Android.keystorePass;
+            var prevKeyaliasPass = PlayerSettings.Android.keyaliasPass;
+
+            PlayerSettings.Android.useCustomKeystore = true;
+            PlayerSettings.Android.keystoreName = SharedKeystorePath;
+            PlayerSettings.Android.keyaliasName = SharedKeystoreAlias;
+            PlayerSettings.Android.keystorePass = SharedKeystorePass;
+            PlayerSettings.Android.keyaliasPass = SharedKeyaliasPass;
             var scenes = EditorBuildSettings.scenes
                 .Where(scene => scene.enabled)
                 .Select(scene => scene.path)
@@ -40,6 +68,11 @@ namespace PicoBridge.Editor
             }
             finally
             {
+                PlayerSettings.Android.useCustomKeystore = prevUseCustomKeystore;
+                PlayerSettings.Android.keystoreName = prevKeystoreName;
+                PlayerSettings.Android.keyaliasName = prevKeyaliasName;
+                PlayerSettings.Android.keystorePass = prevKeystorePass;
+                PlayerSettings.Android.keyaliasPass = prevKeyaliasPass;
                 PlayerSettings.SetPreloadedAssets(preloadedAssets);
             }
 

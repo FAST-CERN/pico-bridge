@@ -8,6 +8,7 @@ PICO Bridge streams headset, controller, hand, body, and Motion Tracker data fro
 | --- | --- |
 | [PC Receiver API](pc-receiver.md) | Python package installation, downstream dependency usage, `PicoBridge` API, pushed video frames, frame fields, and coordinate semantics. |
 | [Unity Development](unity-development.md) | Unity version, project structure, editor menu, development rules, and validation steps. |
+| [Build & Install](build-and-install.md) | Full clone-to-`adb install` flow on any machine, the shared signing key, and troubleshooting. |
 
 ## Quick Start
 

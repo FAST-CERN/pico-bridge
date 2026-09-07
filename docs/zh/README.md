@@ -8,6 +8,7 @@ PICO Bridge 把 PICO 4 / PICO 4 Ultra 的头显、手柄、手部、身体和 Mo
 | --- | --- |
 | [PC 接口](pc-receiver.md) | Python 包安装、下游项目依赖方式、`PicoBridge` API、视频帧推送、帧字段和坐标语义。 |
 | [Unity 结构和开发](unity-development.md) | Unity 版本、项目结构、编辑器菜单、开发规则和验证步骤。 |
+| [编译与安装](build-and-install.md) | 在任意电脑上从 clone 到 `adb install` 的完整流程、统一签名密钥与故障对照。 |
 
 ## 快速开始
 
