@@ -21,9 +21,12 @@ namespace PicoBridge.Tracking
         [Serializable]
         public class SideParams
         {
-            // LOCAL mount (hand-eye) model, 2026-09-09: hand_rot = puck_rot*C
-            // (right-multiplied), hand_pos = puck_pos + puck_rot*m.
-            public float qx, qy, qz, qw; // C
+            // AX=YB mount model, 2026-09-09: the head source and tracker
+            // cache frames differ by a constant rotation R_f (f*), so
+            // hand_rot = R_f * puck_rot * C (q*) and
+            // hand_pos = R_f * (puck_pos + puck_rot * m) (t*).
+            public float qx, qy, qz, qw; // C (right-multiplied mount rotation)
+            public float fx, fy, fz, fw; // R_f (left-multiplied frame rotation)
             public float tx, ty, tz;     // m, metres in the puck frame
             public float positionRms;    // solve quality at commit time
             public float rotationRmsDeg;
@@ -84,13 +87,12 @@ namespace PicoBridge.Tracking
         }
 
         /// <summary>Map a puck pose onto the calibrated hand pose with the
-        /// LOCAL mount model (hand = puck compose M^-1):
-        /// hand_rot = puck_rot * C (stored quat, right-multiplied) and
-        /// hand_pos = puck_pos + puck_rot * m (stored translation, rotates
-        /// with the puck). False when this side has no calibration
-        /// (consumers fall back). The first (Kabsch) formulation stored a
-        /// GLOBAL R*p+t, which cannot follow a mounted puck — see
-        /// TrackerCalibrationSession.SolveSideLocked.</summary>
+        /// AX=YB mount model: hand_rot = R_f * puck_rot * C and
+        /// hand_pos = R_f * (puck_pos + puck_rot * m). False when this side
+        /// has no calibration (consumers fall back). Earlier formulations: a
+        /// GLOBAL R*p+t (cannot follow a mounted puck) and a local-only
+        /// compose (cannot absorb the head-source vs cache frame rotation) —
+        /// see TrackerCalibrationSession.SolveSideLocked.</summary>
         public static bool TryMap(string side, Vector3 puckPos, Quaternion puckRot, out Vector3 pos, out Quaternion rot)
         {
             pos = default;
@@ -101,8 +103,9 @@ namespace PicoBridge.Tracking
                 if (entry == null || entry.poseSet == null)
                     return false;
                 var c = new Quaternion(entry.qx, entry.qy, entry.qz, entry.qw);
-                pos = puckPos + puckRot * new Vector3(entry.tx, entry.ty, entry.tz);
-                rot = puckRot * c;
+                var rf = new Quaternion(entry.fx, entry.fy, entry.fz, entry.fw);
+                pos = rf * (puckPos + puckRot * new Vector3(entry.tx, entry.ty, entry.tz));
+                rot = rf * puckRot * c;
                 return true;
             }
         }
@@ -119,6 +122,7 @@ namespace PicoBridge.Tracking
                 if (target == null)
                     return;
                 target.qx = entry.qx; target.qy = entry.qy; target.qz = entry.qz; target.qw = entry.qw;
+                target.fx = entry.fx; target.fy = entry.fy; target.fz = entry.fz; target.fw = entry.fw;
                 target.tx = entry.tx; target.ty = entry.ty; target.tz = entry.tz;
                 target.positionRms = entry.positionRms;
                 target.rotationRmsDeg = entry.rotationRmsDeg;
@@ -139,6 +143,7 @@ namespace PicoBridge.Tracking
         private static SideParams Copy(SideParams entry) => new SideParams
         {
             qx = entry.qx, qy = entry.qy, qz = entry.qz, qw = entry.qw,
+            fx = entry.fx, fy = entry.fy, fz = entry.fz, fw = entry.fw,
             tx = entry.tx, ty = entry.ty, tz = entry.tz,
             positionRms = entry.positionRms,
             rotationRmsDeg = entry.rotationRmsDeg,

@@ -97,6 +97,7 @@ namespace PicoBridge.Editor
                 var map = new TrackerHandCalibration.SideParams
                 {
                     qx = 0f, qy = 0f, qz = 0f, qw = 1f,
+                    fx = 0f, fy = 0f, fz = 0f, fw = 1f, // identity R_f
                     tx = mapOffset.x, ty = mapOffset.y, tz = mapOffset.z,
                     positionRms = 0.01f, rotationRmsDeg = 2f,
                     poseSet = "chest/side/front",

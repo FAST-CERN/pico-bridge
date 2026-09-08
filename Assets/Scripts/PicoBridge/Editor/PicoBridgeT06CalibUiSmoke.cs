@@ -47,8 +47,8 @@ namespace PicoBridge.Editor
             // Same synthetic world as the t05 smoke: a known rigid transform
             // puck<->hand, fake tracker frames, fixed head pose.
             var knownRot = Quaternion.AngleAxis(37f, new Vector3(1f, 0.4f, -0.25f).normalized);
-            var knownTranslation = new Vector3(0.12f, -0.07f, 0.33f);
-            var invKnown = Quaternion.Inverse(knownRot);
+            var knownFrameRot = Quaternion.AngleAxis(153f, new Vector3(0.2f, 1f, -0.3f).normalized);
+            var knownMountM = new Vector3(0.08f, -0.05f, 0.10f);
             var headPos = new Vector3(1.0f, 1.6f, -0.5f);
             var headRot = Quaternion.AngleAxis(23f, Vector3.up);
 
@@ -73,9 +73,12 @@ namespace PicoBridge.Editor
                     CalibrationPoses.GetLocalPose(poseIndex, side, out var localPos, out var localRot);
                     var targetPos = headPos + headRot * localPos;
                     var targetRot = headRot * localRot;
-                    // Physical mount: puck = hand compose M (t07 round fix).
-                    var puckRot = targetRot * knownRot;
-                    var puckPos = targetPos + targetRot * knownTranslation;
+                    // AX=YB generation (round 2): known frame rotation between
+                    // head source and cache + local mount, mirrors T05.
+                    var puckRot = Quaternion.Inverse(knownFrameRot) * targetRot *
+                        Quaternion.Inverse(knownRot);
+                    var puckPos = Quaternion.Inverse(knownFrameRot) * targetPos -
+                        puckRot * knownMountM;
                     TrackerFrameCache.PublishValid(
                         side, sideIdx == 0 ? 7 : 8, puckPos, puckRot, TrackerFrameCache.Clock());
                 }

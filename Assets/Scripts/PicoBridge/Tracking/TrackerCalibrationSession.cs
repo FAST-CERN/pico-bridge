@@ -161,8 +161,10 @@ namespace PicoBridge.Tracking
                 // (t05 device round) — logcat is the only channel while the
                 // store has no reader yet.
                 Debug.Log($"[PicoBridge] Hand calibration committed: " +
-                          $"L pos {leftParams.positionRms * 1000f:0.0}mm rot {leftParams.rotationRmsDeg:0.0}° | " +
-                          $"R pos {rightParams.positionRms * 1000f:0.0}mm rot {rightParams.rotationRmsDeg:0.0}°");
+                          $"L pos {leftParams.positionRms * 1000f:0.0}mm rot {leftParams.rotationRmsDeg:0.0}° " +
+                          $"Rf {Quaternion.Angle(Quaternion.identity, new Quaternion(leftParams.fx, leftParams.fy, leftParams.fz, leftParams.fw)):0}° | " +
+                          $"R pos {rightParams.positionRms * 1000f:0.0}mm rot {rightParams.rotationRmsDeg:0.0}° " +
+                          $"Rf {Quaternion.Angle(Quaternion.identity, new Quaternion(rightParams.fx, rightParams.fy, rightParams.fz, rightParams.fw)):0}°");
                 return;
             }
 
@@ -192,34 +194,65 @@ namespace PicoBridge.Tracking
             // Estimate: C = chordal mean of the per-sample relative
             // rotations puck_rot^-1 * target_rot; m = least squares on
             // (target - puck) - R(puck_rot) m.
-            var cSum = new Quaternion(0f, 0f, 0f, 0f);
-            bool haveFirst = false;
-            Quaternion first = Quaternion.identity;
+            // AX=YB structure (2026-09-09 round 2): the head source and the
+            // tracker cache frames differ by a large CONSTANT rotation R_f on
+            // device (the local-only model rejected correct rounds at 0.6 m
+            // pos rms; the earlier global fit absorbed R_f and measured
+            // ~0.071 = the mount offset's rotation spread). Full model:
+            //   target_rot = R_f * puck_rot * C
+            //   target_pos = R_f * (puck_pos + puck_rot * m)
+            //
+            // Step 1: C from the RELATIVE rotation axes - conjugation gives
+            // axis_puck_relative = C * axis_target_relative; Kabsch the axis
+            // correspondences (3 pose pairs give 3 axes).
+            var axesTarget = new System.Collections.Generic.List<Vector3>();
+            var axesPuck = new System.Collections.Generic.List<Vector3>();
+            for (int i = 0; i < samples.Length - 1; i++)
+                for (int j = i + 1; j < samples.Length; j++)
+                {
+                    var relTarget = Quaternion.Inverse(samples[i].TargetRot) * samples[j].TargetRot;
+                    var relPuck = Quaternion.Inverse(samples[i].PuckRot) * samples[j].PuckRot;
+                    // Canonical hemisphere (w >= 0): quaternion products land in
+                    // either half, and the axis vector flips with the sign —
+                    // the Kabsch correspondence needs a consistent convention.
+                    if (relTarget.w < 0f)
+                        relTarget = new Quaternion(-relTarget.x, -relTarget.y, -relTarget.z, -relTarget.w);
+                    if (relPuck.w < 0f)
+                        relPuck = new Quaternion(-relPuck.x, -relPuck.y, -relPuck.z, -relPuck.w);
+                    axesTarget.Add(AxisOf(relTarget));
+                    axesPuck.Add(AxisOf(relPuck));
+                }
+            Quaternion c;
+            if (!KabschSolver.Solve(axesTarget.ToArray(), axesPuck.ToArray(), out var cRot, out _, out _))
+            {
+                reason = side + ": degenerate relative-rotation spread (poses too similar)";
+                return false;
+            }
+            c = cRot;
+
+            // Step 2: R_f as the chordal mean of target * (puck * C)^-1.
+            var rfSum = new Quaternion(0f, 0f, 0f, 0f);
+            Quaternion rfFirst = Quaternion.identity;
             for (int i = 0; i < samples.Length; i++)
             {
-                var rel = Quaternion.Inverse(samples[i].PuckRot) * samples[i].TargetRot;
-                if (!haveFirst)
-                {
-                    first = rel;
-                    haveFirst = true;
-                }
-                if (Quaternion.Dot(first, rel) < 0f) // sign-align the double cover
-                {
-                    rel = new Quaternion(-rel.x, -rel.y, -rel.z, -rel.w);
-                }
-                cSum = new Quaternion(cSum.x + rel.x, cSum.y + rel.y, cSum.z + rel.z, cSum.w + rel.w);
+                var rf = samples[i].TargetRot * Quaternion.Inverse(samples[i].PuckRot * c);
+                if (i == 0)
+                    rfFirst = rf;
+                if (Quaternion.Dot(rfFirst, rf) < 0f)
+                    rf = new Quaternion(-rf.x, -rf.y, -rf.z, -rf.w);
+                rfSum = new Quaternion(rfSum.x + rf.x, rfSum.y + rf.y, rfSum.z + rf.z, rfSum.w + rf.w);
             }
-            var c = Quaternion.Normalize(cSum);
+            var frameRot = Quaternion.Normalize(rfSum);
 
-            // m: 3x3 normal equations sum( A^T A ) m = sum( A^T d ), with A's
-            // columns = the puck rotation applied to the basis vectors.
+            // Step 3: m by 3x3 least squares on
+            // d_i = target - R_f*puck = (R_f * puck_rot) * m.
             float[,] ata = new float[3, 3];
             float[] atd = new float[3];
             for (int i = 0; i < samples.Length; i++)
             {
-                var puckRot = samples[i].PuckRot;
-                var cols = new[] { puckRot * Vector3.right, puckRot * Vector3.up, puckRot * Vector3.forward };
-                var d = samples[i].TargetPos - samples[i].PuckPos;
+                var rot = frameRot * samples[i].PuckRot;
+                var cols = new[] { rot * Vector3.right, rot * Vector3.up, rot * Vector3.forward };
+                var d = samples[i].TargetPos - frameRot * samples[i].PuckPos;
                 for (int r = 0; r < 3; r++)
                 {
                     atd[r] += Vector3.Dot(cols[r], d);
@@ -234,13 +267,13 @@ namespace PicoBridge.Tracking
                 return false;
             }
 
-            // Residuals under the LOCAL model.
+            // Residuals under the FULL model.
             float posSumSq = 0f, rotSumSq = 0f;
             for (int i = 0; i < samples.Length; i++)
             {
-                var mapped = samples[i].PuckPos + samples[i].PuckRot * m.Value;
+                var mapped = frameRot * (samples[i].PuckPos + samples[i].PuckRot * m.Value);
                 posSumSq += (mapped - samples[i].TargetPos).sqrMagnitude;
-                float angle = Quaternion.Angle(samples[i].PuckRot * c, samples[i].TargetRot);
+                float angle = Quaternion.Angle(frameRot * samples[i].PuckRot * c, samples[i].TargetRot);
                 rotSumSq += angle * angle;
             }
             float posRms = Mathf.Sqrt(posSumSq / samples.Length);
@@ -260,6 +293,7 @@ namespace PicoBridge.Tracking
             solved = new TrackerHandCalibration.SideParams
             {
                 qx = c.x, qy = c.y, qz = c.z, qw = c.w,
+                fx = frameRot.x, fy = frameRot.y, fz = frameRot.z, fw = frameRot.w,
                 tx = m.Value.x, ty = m.Value.y, tz = m.Value.z,
                 positionRms = posRms,
                 rotationRmsDeg = rotRms,
@@ -273,6 +307,15 @@ namespace PicoBridge.Tracking
             _nextPose = 0;
             _left = new Sample[CalibrationPoses.Count];
             _right = new Sample[CalibrationPoses.Count];
+        }
+
+        /// <summary>Rotation axis of a quaternion (arbitrary for near-identity
+        /// rotations; callers only feed well-spread relatives).</summary>
+        private static Vector3 AxisOf(Quaternion q)
+        {
+            var axis = new Vector3(q.x, q.y, q.z);
+            var norm = axis.magnitude;
+            return norm < 1e-6f ? Vector3.up : axis / norm;
         }
 
         /// <summary>Solve a 3x3 system by Cramer; null when singular (the

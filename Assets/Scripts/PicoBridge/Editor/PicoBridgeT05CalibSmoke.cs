@@ -28,6 +28,13 @@ namespace PicoBridge.Editor
         private static readonly Vector3 KnownTranslation = new Vector3(0.12f, -0.07f, 0.33f);
         private static readonly Quaternion KnownMountRot = KnownRot;         // C of the synthetic mount
         private static readonly Vector3 KnownMountOffset = KnownTranslation; // d, in the hand frame
+        // AX=YB ground truth (2026-09-09 round 2): a LARGE constant frame
+        // rotation between the head source and the cache (the device
+        // reality the local-only model rejected at 0.6 m), plus the mount
+        // offset m the solve must recover.
+        private static readonly Quaternion KnownFrameRot =
+            Quaternion.AngleAxis(153f, new Vector3(0.2f, 1f, -0.3f).normalized);
+        private static readonly Vector3 KnownMountM = new Vector3(0.08f, -0.05f, 0.10f);
 
         // Non-collinear, well-spread "puck" positions (m, Unity frame).
         private static readonly Vector3[] KnownFrom =
@@ -154,13 +161,15 @@ namespace PicoBridge.Editor
             var headPos = new Vector3(1.0f, 1.6f, -0.5f);
             var headRot = Quaternion.AngleAxis(23f, Vector3.up);
 
-            // PHYSICAL mount model (2026-09-09 t07 round): puck = hand
-            // compose M_known, i.e. puckRot = targetRot * KnownMountRot and
-            // puckPos = targetPos + targetRot * KnownMountOffset. The solver
-            // must recover C = KnownMountRot^-1 and m = -KnownMountRot^-1 *
-            // KnownMountOffset. (The first draft generated pucks with a
-            // GLOBAL transform — encoding the model bug the device round
-            // caught: the mapped gizmo floated away.)
+            // AX=YB ground truth (2026-09-09 round 2): the head source and
+            // the cache frames differ by KnownFrameRot, and the puck sits on
+            // the hand via a constant local mount. Generation inverts the
+            // model target = Rf * (puck compose M):
+            //   puck_rot = Rf^-1 * target_rot * C^-1
+            //   puck_pos = Rf^-1 * target_pos - puck_rot * m
+            // The solver must recover C = KnownMountRot, R_f = KnownFrameRot,
+            // and m = KnownMountM. (Draft one generated pucks with a GLOBAL
+            // transform - encoding the model bug the device round caught.)
             void PublishPose(int poseIndex, float posOffset, float rotOffsetDeg)
             {
                 for (int sideIdx = 0; sideIdx < 2; sideIdx++)
@@ -169,9 +178,11 @@ namespace PicoBridge.Editor
                     CalibrationPoses.GetLocalPose(poseIndex, side, out var localPos, out var localRot);
                     var targetPos = headPos + headRot * localPos;
                     var targetRot = headRot * localRot;
-                    var puckRot = targetRot * KnownMountRot *
+                    var puckRot = Quaternion.Inverse(KnownFrameRot) * targetRot *
+                        Quaternion.Inverse(KnownMountRot) *
                         Quaternion.AngleAxis(rotOffsetDeg, Vector3.up);
-                    var puckPos = targetPos + targetRot * KnownMountOffset +
+                    var puckPos = Quaternion.Inverse(KnownFrameRot) * targetPos -
+                        puckRot * KnownMountM +
                         new Vector3(posOffset, 0f, 0f);
                     TrackerFrameCache.PublishValid(
                         side, sideIdx == 0 ? 7 : 8, puckPos, puckRot, TrackerFrameCache.Clock());
@@ -221,23 +232,41 @@ namespace PicoBridge.Editor
             CalibrationPoses.GetLocalPose(1, "left", out var lp1, out var lr1);
             var target1Pos = headPos + headRot * lp1;
             var target1Rot = headRot * lr1;
-            var leftPuck1 = target1Pos + target1Rot * KnownTranslation;
-            var leftPuck1Rot = target1Rot * KnownRot;
+            var leftPuck1Rot = Quaternion.Inverse(KnownFrameRot) * target1Rot *
+                Quaternion.Inverse(KnownMountRot);
+            var leftPuck1 = Quaternion.Inverse(KnownFrameRot) * target1Pos -
+                leftPuck1Rot * KnownMountM;
             Check(TrackerHandCalibration.TryMap("left", leftPuck1, leftPuck1Rot, out var mappedPos, out var mappedRot),
                 "store: TryMap true after commit");
             Check((mappedPos - target1Pos).magnitude < 1e-3f &&
                   Quaternion.Angle(mappedRot, target1Rot) < 0.1f,
                 "store: TryMap round-trips a mounted puck onto the hand target");
             var committedLeft = TrackerHandCalibration.GetSide("left");
-            var expectC = Quaternion.Inverse(KnownRot);
-            var expectM = Quaternion.Inverse(KnownRot) * (-KnownTranslation);
             Check(committedLeft != null && Quaternion.Angle(
                       new Quaternion(committedLeft.qx, committedLeft.qy, committedLeft.qz, committedLeft.qw),
-                      expectC) < 0.5f,
-                "store: solved C matches the known mount inverse");
+                      KnownMountRot) < 0.5f,
+                "store: solved C matches the known mount");
+            Check(committedLeft != null && Quaternion.Angle(
+                      new Quaternion(committedLeft.fx, committedLeft.fy, committedLeft.fz, committedLeft.fw),
+                      KnownFrameRot) < 0.5f,
+                "store: solved R_f matches the known head-vs-cache frame rotation");
             Check(committedLeft != null &&
-                  (new Vector3(committedLeft.tx, committedLeft.ty, committedLeft.tz) - expectM).magnitude < 1e-3f,
-                "store: solved m matches -C^-1 * mount offset");
+                  (new Vector3(committedLeft.tx, committedLeft.ty, committedLeft.tz) - KnownMountM).magnitude < 1e-3f,
+                "store: solved m matches the known mount offset");
+
+            // In-place hand rotation (the property the global model failed
+            // on device): the hand rotates about its own centre, the puck
+            // position swings with the mount offset, and the solved map
+            // must still land on the (unchanged) hand position.
+            var inPlace = Quaternion.AngleAxis(90f, Vector3.up);
+            var followPuckRot = Quaternion.Inverse(KnownFrameRot) *
+                (target1Rot * inPlace) * Quaternion.Inverse(KnownMountRot);
+            var followPuckPos = Quaternion.Inverse(KnownFrameRot) * target1Pos -
+                followPuckRot * KnownMountM;
+            Check(TrackerHandCalibration.TryMap("left", followPuckPos, followPuckRot, out var followPos, out var followRot) &&
+                  (followPos - target1Pos).magnitude < 1e-3f &&
+                  Quaternion.Angle(followRot, target1Rot * inPlace) < 0.1f,
+                "store: the map follows an in-place rotated hand (position AND rotation)");
             var committedRight = TrackerHandCalibration.GetSide("right");
             Check(committedRight != null && committedRight.positionRms < 1e-3f && committedRight.rotationRmsDeg < 0.1f,
                 $"store: residuals recorded (pos {committedRight?.positionRms:0.000000} / rot {committedRight?.rotationRmsDeg:0.00}°)");
@@ -287,11 +316,7 @@ namespace PicoBridge.Editor
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Committed,
                 "session: consistent mount-rotation offset absorbs into C (local model)");
             var rotatedLeft = TrackerHandCalibration.GetSide("left");
-            var target1PuckRot = target1Rot * KnownRot * Quaternion.AngleAxis(90f, Vector3.up);
-            Check(rotatedLeft != null &&
-                  TrackerHandCalibration.TryMap("left", leftPuck1, target1PuckRot, out var followPos, out var followRot) &&
-                  (followPos - target1Pos).magnitude < 1e-3f,
-                "session: the solved map follows a rotated hand pose (in-place rotation)");
+            Check(rotatedLeft != null, "session: rotated-mount round commits (store replaced)");
 
             PublishPose(0, 0f, 0f);
             TrackerCalibrationSession.Capture();
