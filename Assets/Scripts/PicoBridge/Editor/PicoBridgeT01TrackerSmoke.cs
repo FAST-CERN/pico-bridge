@@ -211,8 +211,13 @@ namespace PicoBridge.Editor
                       Nearly(leftRootGo.transform.position.z, -1.0f), "viz: gizmo placed at flipped golden pose");
 
                 var cubeMat = (Material)GetPrivate(leftGizmo, "CubeMaterial");
-                Check(Nearly(cubeMat.color.r, 1.0f) && Nearly(cubeMat.color.g, 0.55f) && Nearly(cubeMat.color.b, 0.15f),
-                    "viz: valid cube painted side color (left orange 1.0/0.55/0.15)");
+                // t17: the mapping is always on (zero trim = hand ≡ puck),
+                // so the raw puck gizmo is always the muted context one —
+                // side color × 0.45 (the mapped-hand gizmo carries the
+                // bright side color; T02 covers that half).
+                Check(Nearly(cubeMat.color.r, 1.0f * 0.45f) && Nearly(cubeMat.color.g, 0.55f * 0.45f) &&
+                      Nearly(cubeMat.color.b, 0.15f * 0.45f),
+                    "viz: valid cube painted the muted side color (t17 always-on mapping; left orange x0.45)");
 
                 TrackerFrameCache.PublishInvalid("left", 7, 100.2f);
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);

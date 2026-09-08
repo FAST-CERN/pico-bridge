@@ -81,40 +81,38 @@ namespace PicoBridge.Editor
                 TrackerHandCalibration.ResetForTest(
                     System.IO.Path.Combine(Application.temporaryCachePath, "t02-t07-store.json"));
 
-                // Uncalibrated: full-color puck, hand gizmo hidden.
+                // ── t17: mapped-hand gizmo under the human-trim model ──
+                // Zero trim (the fresh-store default): there is no
+                // "uncalibrated" state anymore — the hand gizmo is always
+                // mapped and coincides with the puck; the raw puck dims.
                 TrackerFrameCache.PublishValid("left", 7, Pose, Rot, 200f);
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);
                 var handGizmo = GetPrivate(viz, "_leftHand");
                 var handRootGo = (GameObject)GetPrivate(handGizmo, "Root");
                 var handCubeMat = (Material)GetPrivate(handGizmo, "CubeMaterial");
-                Check(!handRootGo.activeSelf && Nearly(cubeMat.color.r, 1.0f),
-                    "t07: uncalibrated side keeps full-color puck, hand gizmo hidden");
-
-                // Identity-C + known-m calibration (LOCAL mount model): hand
-                // gizmo at puckPos + puckRot * m, rotation = puckRot * C; the
-                // raw puck dims.
-                var mapOffset = new Vector3(0.1f, 0.05f, -0.2f);
-                var map = new TrackerHandCalibration.SideParams
-                {
-                    qx = 0f, qy = 0f, qz = 0f, qw = 1f,
-                    fx = 0f, fy = 0f, fz = 0f, fw = 1f, // identity R_f
-                    tx = mapOffset.x, ty = mapOffset.y, tz = mapOffset.z,
-                    positionRms = 0.01f, rotationRmsDeg = 2f,
-                    poseSet = "chest/side/front",
-                };
-                TrackerHandCalibration.Commit("left", map);
-                InvokePrivate(viz, "PollSide", "left", leftGizmo);
                 var rotN = Rot.normalized; // Unity normalizes on assignment
-                var expected = Pose + rotN * mapOffset; // m rides the puck rotation
+                Check(handRootGo.activeSelf &&
+                      Nearly(handRootGo.transform.position.x, Pose.x) &&
+                      Nearly(handRootGo.transform.position.y, Pose.y) &&
+                      Nearly(handRootGo.transform.position.z, Pose.z) &&
+                      Nearly(handRootGo.transform.rotation.x, rotN.x) && Nearly(handRootGo.transform.rotation.w, rotN.w),
+                    "t17: zero trim maps the hand gizmo onto the puck pose");
+                Check(leftRootGo.activeSelf && cubeMat.color.r < 0.6f && cubeMat.color.r > 0.3f,
+                    "t17: raw puck gizmo dims under the always-on mapping");
+                Check(handCubeMat.color.r > 0.9f, "t17: hand gizmo carries the bright side color");
+
+                // Trimmed: hand gizmo at puck − trimmedRot * (0, level, 0),
+                // rotation = puckRot * Euler(yaw,...) — the panel knobs'
+                // live effect.
+                TrackerHandCalibration.SetSide("left", 90f, 0f, 0f, 20f);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                var trimmedRot = rotN * Quaternion.Euler(0f, 90f, 0f);
+                var expected = Pose - trimmedRot * new Vector3(0f, 0.020f, 0f);
                 Check(handRootGo.activeSelf &&
                       Nearly(handRootGo.transform.position.x, expected.x) &&
                       Nearly(handRootGo.transform.position.y, expected.y) &&
-                      Nearly(handRootGo.transform.position.z, expected.z) &&
-                      Nearly(handRootGo.transform.rotation.x, rotN.x) && Nearly(handRootGo.transform.rotation.w, rotN.w),
-                    "t07: hand gizmo renders at puck + puckRot*m (local mount model)");
-                Check(leftRootGo.activeSelf && cubeMat.color.r < 0.6f && cubeMat.color.r > 0.3f,
-                    "t07: raw puck gizmo dims under an active calibration");
-                Check(handCubeMat.color.r > 0.9f, "t07: hand gizmo carries the bright side color");
+                      Nearly(handRootGo.transform.position.z, expected.z),
+                    "t17: trim moves the hand gizmo (yaw + level slide)");
 
                 // Optical loss under calibration: hand gizmo ghosts at the
                 // last mapped pose.

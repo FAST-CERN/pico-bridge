@@ -5,52 +5,47 @@ using UnityEngine;
 namespace PicoBridge.Tracking
 {
     /// <summary>
-    /// Per-side puck->hand rigid transform store (tracker-ik map t05).
-    /// Mirrors the BodyMountCorrection persistence pattern:
-    /// persistentDataPath JSON, boot-time load, thread-guarded. A side is
-    /// "calibrated" once its poseSet is set (the serializable default leaves
-    /// it null, so a fresh install maps nothing).
+    /// Per-side puck→hand mapping store (tracker-ik map t17, human-trim
+    /// paradigm). The solve paradigm (global Kabsch → local mount → AX=YB)
+    /// was killed by the 2026-09-09 device round: 3 guided poses cannot
+    /// constrain 9 DOF (leave-one-out 415-609 mm), the head-vs-cache frame
+    /// relation is non-constant (probe 28.4° deviation), and the rotation
+    /// conjugacy angles don't match — see the map Notes. What survives is
+    /// physical fact: the mount offset is tiny (|m| 2-5 cm) and the only
+    /// real unknown is the uncontrolled strap ROTATION.
     ///
-    /// Mapping contract (t07/t09 consume): hand_pos = R·puck_pos + t,
-    /// hand_rot = R·puck_rot — a single {R,t} covers position and
-    /// orientation because the puck is rigidly strapped to the hand.
-    /// Everything stays in the Unity frame the tracker cache uses.
+    /// So the mapping is a per-side operator TRIM, adjusted once per
+    /// strapping (~30 s) against passthrough: yaw/pitch/roll compose in
+    /// the puck's local frame, level slides along the trimmed hand's own
+    /// vertical axis (same semantics as BodyMountCorrection's level, whose
+    /// panel row is the UX template).
     /// </summary>
     public static class TrackerHandCalibration
     {
         [Serializable]
         public class SideParams
         {
-            // AX=YB mount model, 2026-09-09: the head source and tracker
-            // cache frames differ by a constant rotation R_f (f*), so
-            // hand_rot = R_f * puck_rot * C (q*) and
-            // hand_pos = R_f * (puck_pos + puck_rot * m) (t*).
-            public float qx, qy, qz, qw; // C (right-multiplied mount rotation)
-            public float fx, fy, fz, fw; // R_f (left-multiplied frame rotation)
-            public float tx, ty, tz;     // m, metres in the puck frame
-            public float positionRms;    // solve quality at commit time
-            public float rotationRmsDeg;
-            public string poseSet;       // guided set id; null = never calibrated
+            public float yaw;    // degrees, puck-local twist about up
+            public float pitch;  // degrees, puck-local tilt about right
+            public float roll;   // degrees, puck-local roll about forward
+            public float level;  // millimetres slid along the trimmed up axis
         }
 
         [Serializable]
         private class Config
         {
-            // t13 schema gate: "" or any unrecognized value = a store from
-            // an older model (pre-AX=YB global {R,t} / local {C,m}) that
-            // this code must NOT reinterpret — on device (09-09) the legacy
-            // file read R_f=(0,0,0,0) ≈ identity and flung the mapped hand
-            // ~3.2 m with no commit in between. SaveLocked stamps the
-            // current value on every write; LoadLocked gates on it.
+            // t13 schema gate, carried into the trim paradigm: "" or any
+            // unrecognized value = a store from an older model (model-1
+            // global {R,t}, axyb-v1 {C,R_f,m}) whose fields do NOT mean
+            // trim values — load as defaults (identity mapping), never
+            // reinterpret. SaveLocked stamps the current value.
             public string model = "";
             public SideParams left = new SideParams();
             public SideParams right = new SideParams();
         }
 
-        /// <summary>Current store schema. Bump whenever SideParams
-        /// semantics change (model swap = new version string, old stores
-        /// load as uncalibrated and viz falls back to puck-only).</summary>
-        private const string StoreModel = "axyb-v1";
+        /// <summary>Current store schema (t17 human-trim).</summary>
+        private const string StoreModel = "trim-v1";
 
         private static readonly object _stateLock = new object();
         private static Config _config = new Config();
@@ -88,57 +83,55 @@ namespace PicoBridge.Tracking
             }
         }
 
-        /// <summary>One side's stored params (copy) or null.</summary>
+        /// <summary>One side's stored trim (copy) or null for an unknown
+        /// side. Unlike the solve era there is no "uncalibrated" state —
+        /// zero trim is a valid mapping (hand ≡ puck).</summary>
         public static SideParams GetSide(string side)
         {
             lock (_stateLock)
             {
                 var entry = Side(side);
-                return entry == null || entry.poseSet == null ? null : Copy(entry);
+                return entry == null ? null : Copy(entry);
             }
         }
 
-        /// <summary>Map a puck pose onto the calibrated hand pose with the
-        /// AX=YB mount model: hand_rot = R_f * puck_rot * C and
-        /// hand_pos = R_f * (puck_pos + puck_rot * m). False when this side
-        /// has no calibration (consumers fall back). Earlier formulations: a
-        /// GLOBAL R*p+t (cannot follow a mounted puck) and a local-only
-        /// compose (cannot absorb the head-source vs cache frame rotation) —
-        /// see TrackerCalibrationSession.SolveSideLocked.</summary>
+        /// <summary>Map a puck pose onto the hand pose with the per-side
+        /// trim: hand_rot = puck_rot · trim (yaw∘pitch∘roll, puck-local),
+        /// hand_pos = puck_pos − hand_rot · (0, level mm, 0) — the same
+        /// slide convention as BodyMountCorrection's level knob. The
+        /// consumers (MotionTrackerVisualizer now, the t08 IK later) keep
+        /// the same signature the solve era had.</summary>
         public static bool TryMap(string side, Vector3 puckPos, Quaternion puckRot, out Vector3 pos, out Quaternion rot)
         {
             pos = default;
             rot = default;
+            SideParams entry;
+            lock (_stateLock)
+                entry = Side(side);
+            if (entry == null)
+                return false;
+            var trim = Quaternion.AngleAxis(entry.yaw, Vector3.up) *
+                       Quaternion.AngleAxis(entry.pitch, Vector3.right) *
+                       Quaternion.AngleAxis(entry.roll, Vector3.forward);
+            rot = puckRot * trim;
+            pos = puckPos - rot * new Vector3(0f, entry.level * 0.001f, 0f);
+            return true;
+        }
+
+        /// <summary>Set one side's trim and persist (panel knob clicks and
+        /// the remote set_hand_trim push both land here). Unknown side:
+        /// no-op.</summary>
+        public static void SetSide(string side, float yaw, float pitch, float roll, float level)
+        {
             lock (_stateLock)
             {
                 var entry = Side(side);
-                if (entry == null || entry.poseSet == null)
-                    return false;
-                var c = new Quaternion(entry.qx, entry.qy, entry.qz, entry.qw);
-                var rf = new Quaternion(entry.fx, entry.fy, entry.fz, entry.fw);
-                pos = rf * (puckPos + puckRot * new Vector3(entry.tx, entry.ty, entry.tz));
-                rot = rf * puckRot * c;
-                return true;
-            }
-        }
-
-        /// <summary>Commit one side's solved transform and persist. The
-        /// session only calls this after BOTH sides passed their gates.</summary>
-        public static void Commit(string side, SideParams entry)
-        {
-            if (entry == null)
-                return;
-            lock (_stateLock)
-            {
-                var target = Side(side);
-                if (target == null)
+                if (entry == null)
                     return;
-                target.qx = entry.qx; target.qy = entry.qy; target.qz = entry.qz; target.qw = entry.qw;
-                target.fx = entry.fx; target.fy = entry.fy; target.fz = entry.fz; target.fw = entry.fw;
-                target.tx = entry.tx; target.ty = entry.ty; target.tz = entry.tz;
-                target.positionRms = entry.positionRms;
-                target.rotationRmsDeg = entry.rotationRmsDeg;
-                target.poseSet = entry.poseSet;
+                entry.yaw = yaw;
+                entry.pitch = pitch;
+                entry.roll = roll;
+                entry.level = level;
                 SaveLocked();
             }
         }
@@ -154,12 +147,10 @@ namespace PicoBridge.Tracking
 
         private static SideParams Copy(SideParams entry) => new SideParams
         {
-            qx = entry.qx, qy = entry.qy, qz = entry.qz, qw = entry.qw,
-            fx = entry.fx, fy = entry.fy, fz = entry.fz, fw = entry.fw,
-            tx = entry.tx, ty = entry.ty, tz = entry.tz,
-            positionRms = entry.positionRms,
-            rotationRmsDeg = entry.rotationRmsDeg,
-            poseSet = entry.poseSet,
+            yaw = entry.yaw,
+            pitch = entry.pitch,
+            roll = entry.roll,
+            level = entry.level,
         };
 
         private static void LoadLocked()
@@ -171,12 +162,10 @@ namespace PicoBridge.Tracking
                     _config = JsonUtility.FromJson<Config>(File.ReadAllText(_path)) ?? new Config();
                     if (_config.model != StoreModel)
                     {
-                        // Schema gate (t13): a store from another model
-                        // version is different DATA, not a config tweak —
-                        // fields shift meaning between schemas. Treat both
-                        // sides as uncalibrated; the next round rewrites
-                        // the file under the current schema.
-                        Debug.LogWarning($"[PicoBridge] Tracker-hand calibration store schema '{_config.model}' != '{StoreModel}' - treating as uncalibrated, recalibrate");
+                        // Schema gate (t13, carried into t17): a store from
+                        // another model version is different DATA — reset to
+                        // defaults; the first knob click rewrites the file.
+                        Debug.LogWarning($"[PicoBridge] Tracker-hand calibration store schema '{_config.model}' != '{StoreModel}' - trim reset to defaults");
                         _config = new Config();
                     }
                 }

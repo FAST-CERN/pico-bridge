@@ -124,10 +124,6 @@ namespace PicoBridge
             // the same predicted-sensor call AppendHead uses (D3: raw, no
             // flip). Injectable so editor smokes feed golden literals.
             TrackerBodyHead.Source = ReadTrackerHeadPose;
-            // Guided calibration targets compose head ∘ local in the SAME
-            // Unity frame as the tracker cache (t05 Q1) — the XR head
-            // camera, not the PXR raw pose.
-            Tracking.TrackerCalibrationSession.HeadSource = ReadHeadUnityPose;
             // Head-source frame probe (tracker-ik t15): both sources at
             // the same tick, remote-triggered, JSONL beside the store.
             Tracking.HeadFrameProbe.UnitySource = ReadHeadUnityPose;
@@ -212,11 +208,6 @@ namespace PicoBridge
 #if UNITY_EDITOR
             SuppressEditorOnlyControllerRenderers();
 #endif
-
-            // In-app guided calibration pacing (tracker-ik t06): always-on
-            // driver so the countdown keeps running even while the panel
-            // itself is hidden; the guide aborts itself on immersive entry.
-            Tracking.TrackerCalibrationGuide.Tick(Time.deltaTime);
 
             // Head-source frame probe window (tracker-ik t15): no-op unless
             // a set_head_probe window is open.
@@ -403,24 +394,17 @@ namespace PicoBridge
                 return;
             }
 
-            // Guided hand calibration session (tracker-ik map t05, Q2):
-            // three-pose dual-side capture driven by dev scripts now and the
-            // t06 panel Calib button later. Receiver package stays 0.2.x
-            // untouched. State/reason land in the log for the round.
-            if (channel == "tracking" && type == "set_calibration")
+            // Hand trim push (tracker-ik t17, human-trip paradigm): per-side
+            // yaw/pitch/roll degrees + level millimetres write straight into
+            // the trim store (same shape as set_mount_correction — sides
+            // absent from the payload keep their stored values). The panel
+            // knobs are the primary writer; remote is the dev/batch path.
+            if (channel == "tracking" && type == "set_hand_trim")
             {
-                string action = ExtractString(json, "action");
-                if (action == "begin")
-                    Tracking.TrackerCalibrationSession.Begin();
-                else if (action == "capture")
-                    Tracking.TrackerCalibrationSession.Capture();
-                else if (action == "abort")
-                    Tracking.TrackerCalibrationSession.Abort();
-                var state = Tracking.TrackerCalibrationSession.CurrentState;
-                var reason = Tracking.TrackerCalibrationSession.LastRejectReason;
-                Debug.Log($"[PicoBridge] BridgeControl: set_calibration {action} -> {state} " +
-                          $"pose {Tracking.TrackerCalibrationSession.NextPoseIndex}" +
-                          (reason.Length > 0 ? $" ({reason})" : ""));
+                ApplyHandTrimSide(json, "left");
+                ApplyHandTrimSide(json, "right");
+                Debug.Log($"[PicoBridge] BridgeControl: set_hand_trim " +
+                          $"L={DescribeHandTrim("left")} R={DescribeHandTrim("right")}");
                 return;
             }
 
@@ -457,6 +441,38 @@ namespace PicoBridge
                 Debug.Log($"[PicoBridge] BridgeControl: set_mount_correction enabled={correctionEnabled} " +
                           $"L={DescribeMountCorrectionSide("left")} R={DescribeMountCorrectionSide("right")}");
             }
+        }
+
+        private static void ApplyHandTrimSide(string json, string side)
+        {
+            // Absent side objects keep their stored values (mirror of
+            // ApplyMountCorrectionSide's partial-payload contract).
+            string sideJson = ExtractObject(json, side);
+            if (sideJson.Length == 0)
+                return;
+            var current = Tracking.TrackerHandCalibration.GetSide(side);
+            if (current == null)
+                return;
+            float? yaw = ExtractFloat(sideJson, "yaw");
+            float? pitch = ExtractFloat(sideJson, "pitch");
+            float? roll = ExtractFloat(sideJson, "roll");
+            float? level = ExtractFloat(sideJson, "level");
+            if (!yaw.HasValue && !pitch.HasValue && !roll.HasValue && !level.HasValue)
+                return;
+            Tracking.TrackerHandCalibration.SetSide(
+                side,
+                yaw ?? current.yaw,
+                pitch ?? current.pitch,
+                roll ?? current.roll,
+                level ?? current.level);
+        }
+
+        private static string DescribeHandTrim(string side)
+        {
+            var entry = Tracking.TrackerHandCalibration.GetSide(side);
+            return entry == null
+                ? "?"
+                : $"yaw {entry.yaw:0.#}° pit {entry.pitch:0.#}° rol {entry.roll:0.#}° lev {entry.level:0.#}mm";
         }
 
         private static void ApplyMountCorrectionSide(string json, string side)

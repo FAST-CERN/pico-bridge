@@ -19,7 +19,7 @@ namespace PicoBridge.UI
         private bool _cameraSignalVisible;
         private ArmSourcePanelRow _armSourceRow;
         private MountCalibPanelRow _mountCalibRow;
-        private TrackerCalibPanelRow _trackerCalibRow;
+        private TrackerHandTrimPanelRow _handTrimRow;
         private bool _hasExpandedRect;
         private Vector2 _expandedAnchorMin;
         private Vector2 _expandedAnchorMax;
@@ -68,7 +68,7 @@ namespace PicoBridge.UI
             ConfigureResolutionControl();
             ConfigureArmSourceControl();
             ConfigureMountCalibControls();
-            ConfigureTrackerCalibControl();
+            ConfigureHandTrimControls();
         }
 
         private void Start()
@@ -199,16 +199,11 @@ namespace PicoBridge.UI
             // hide them in every other mode (incl. TrackerBody).
             _mountCalibRow?.SetVisible(manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
 
-            // t06: the CALIB entry is the tracker-mode mirror of that gate,
-            // and the row renders the guided flow's guidance + countdowns.
+            // t17: the hand-trim steppers are the tracker-mode mirror of that
+            // gate — the human-trim replacement for the retired guided flow.
             bool trackerMode = manager.ArmStream == PicoBridgeManager.ArmStreamMode.TrackerBody;
-            _trackerCalibRow?.SetVisible(trackerMode);
-            bool guideRunning = Tracking.TrackerCalibrationGuide.CurrentPhase !=
-                Tracking.TrackerCalibrationGuide.Phase.Inactive;
-            _trackerCalibRow?.Refresh(
-                guideRunning,
-                Tracking.TrackerCalibrationGuide.StatusText(),
-                Tracking.TrackerCalibrationGuide.IsUrgent);
+            _handTrimRow?.SetVisible(trackerMode);
+            _handTrimRow?.Refresh();
         }
 
         // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level
@@ -228,29 +223,37 @@ namespace PicoBridge.UI
                 manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
         }
 
-        // In-app guided calibration entry (tracker-ik t06): CALIB starts the
-        // guided three-pose flow, ABORT (same button, running) cancels it.
-        // The guide itself is session-local — no receiver connection needed;
-        // the panel status label IS the operator's metronome (2026-09-08
-        // device verdict: PC audio beats mistimed every pose).
-        private void ConfigureTrackerCalibControl()
+        // Hand-trim steppers (tracker-ik t17, human-trim paradigm): per side
+        // yaw/pitch/roll ±5° + level ±5 mm under the arm-source row. Clicks
+        // write into the trim store (applies next viz frame + persists as
+        // boot default); the operator aligns the bright mapped-hand gizmo
+        // onto their passthrough view of the real hand.
+        private void ConfigureHandTrimControls()
         {
             if (_armSourceRow == null || _armSourceRow.RowRect == null)
                 return;
 
-            _trackerCalibRow = TrackerCalibPanelRow.Build(_armSourceRow.RowRect, ToggleTrackerCalib);
-            _trackerCalibRow?.SetVisible(manager != null &&
+            _handTrimRow = TrackerHandTrimPanelRow.Build(_armSourceRow.RowRect, AdjustHandTrim);
+            _handTrimRow?.Refresh();
+            _handTrimRow?.SetVisible(manager != null &&
                 manager.ArmStream == PicoBridgeManager.ArmStreamMode.TrackerBody);
         }
 
-        private void ToggleTrackerCalib()
+        private void AdjustHandTrim(string side, string axis, float delta)
         {
-            if (Tracking.TrackerCalibrationGuide.CurrentPhase ==
-                Tracking.TrackerCalibrationGuide.Phase.Inactive)
-                Tracking.TrackerCalibrationGuide.Start();
-            else
-                Tracking.TrackerCalibrationGuide.Abort();
-            RefreshArmSourceControl();
+            var entry = Tracking.TrackerHandCalibration.GetSide(side);
+            if (entry == null)
+                return;
+            float yaw = entry.yaw, pitch = entry.pitch, roll = entry.roll, level = entry.level;
+            switch (axis)
+            {
+                case "yaw": yaw = Mathf.Clamp(entry.yaw + delta, -TrackerHandTrimPanelRow.MaxRotDegrees, TrackerHandTrimPanelRow.MaxRotDegrees); break;
+                case "pitch": pitch = Mathf.Clamp(entry.pitch + delta, -TrackerHandTrimPanelRow.MaxRotDegrees, TrackerHandTrimPanelRow.MaxRotDegrees); break;
+                case "roll": roll = Mathf.Clamp(entry.roll + delta, -TrackerHandTrimPanelRow.MaxRotDegrees, TrackerHandTrimPanelRow.MaxRotDegrees); break;
+                case "level": level = Mathf.Clamp(entry.level + delta, -TrackerHandTrimPanelRow.MaxLevelMillimetres, TrackerHandTrimPanelRow.MaxLevelMillimetres); break;
+            }
+            Tracking.TrackerHandCalibration.SetSide(side, yaw, pitch, roll, level);
+            _handTrimRow?.Refresh();
         }
 
         private void AdjustMountCorrection(string side, bool isYaw, float delta)
