@@ -1,4 +1,5 @@
 using System;
+using PicoBridge.Tracking;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,15 +8,20 @@ namespace PicoBridge.UI
 {
     /// <summary>
     /// Code-built panel row for the arm-source mode mutex (mocap t07;
-    /// reworked bodytrack-deploy t10, trimmed on the 2026-09-05 in-headset
-    /// review): "Gloves" (controllers strapped to the hand backs, mount
-    /// correction ON) vs "Held" (normal grip, correction OFF) — both PICO
-    /// body mode, the pills are the correction enable switch and double as a
-    /// raw-vs-adjusted comparison of the hand cubes. The Trackers pill was
-    /// removed per review (tracker fallback stays a receiver-driven ops
-    /// action via BridgeControl set_motion). SN binding summary stays. Built
-    /// entirely from code under the panel's existing control rows (no prefab
-    /// edits).
+    /// reworked bodytrack-deploy t10; third state restored tracker-ik t04):
+    /// "Trackers" (the device-side tracker chain emitting 24-joint body
+    /// frames — ArmStreamMode.TrackerBody) vs "Gloves" (controllers strapped
+    /// to the hand backs, mount correction ON) vs "Held" (normal grip,
+    /// correction OFF) — Gloves/Held are both PICO body mode, the pills are
+    /// the correction enable switch. The legacy Motion-payload Trackers
+    /// (receiver synth) stays receiver-gated via BridgeControl set_motion
+    /// and lights no pill. Built entirely from code under the panel's
+    /// existing control rows (no prefab edits).
+    ///
+    /// t04 UX: two LED status dots (round, runtime-generated sprite) sit
+    /// between the pills and the SN text — green=valid, yellow=optical
+    /// ghost, red=disconnected, gray=unbound (TrackerSessionStatus per
+    /// side); the SN summary text stays as secondary detail.
     /// </summary>
     public class ArmSourcePanelRow
     {
@@ -24,17 +30,32 @@ namespace PicoBridge.UI
         private static readonly Color TextColor = new Color(0.94f, 0.975f, 0.985f, 1f);
         private static readonly Color MutedTextColor = new Color(0.66f, 0.72f, 0.75f, 1f);
 
+        // LED four-color semantics (2026-09-08 in-headset review, t04 ③).
+        private static readonly Color LedValidColor = new Color(0.16f, 0.74f, 0.43f, 1f);
+        private static readonly Color LedLostColor = new Color(0.96f, 0.63f, 0.16f, 1f);
+        private static readonly Color LedDisconnectedColor = new Color(0.88f, 0.22f, 0.29f, 1f);
+        private static readonly Color LedUnboundColor = new Color(0.45f, 0.49f, 0.52f, 1f);
+
+        private static Sprite _dotSprite;
+
+        private readonly Button _trackersButton;
         private readonly Button _glovesButton;
         private readonly Button _heldButton;
+        private readonly Image _ledLeft;
+        private readonly Image _ledRight;
         private readonly TMP_Text _snText;
         private readonly RectTransform _rowRect;
 
         private ArmSourcePanelRow(
-            Button glovesButton, Button heldButton,
+            Button trackersButton, Button glovesButton, Button heldButton,
+            Image ledLeft, Image ledRight,
             TMP_Text snText, RectTransform rowRect)
         {
+            _trackersButton = trackersButton;
             _glovesButton = glovesButton;
             _heldButton = heldButton;
+            _ledLeft = ledLeft;
+            _ledRight = ledRight;
             _snText = snText;
             _rowRect = rowRect;
         }
@@ -45,7 +66,8 @@ namespace PicoBridge.UI
         public static ArmSourcePanelRow Build(
             RectTransform templateRow,
             Action onRequestGloves,
-            Action onRequestHeld)
+            Action onRequestHeld,
+            Action onRequestTrackers)
         {
             if (templateRow == null)
                 return null;
@@ -80,18 +102,32 @@ namespace PicoBridge.UI
             layout.childControlWidth = true;
             layout.childControlHeight = true;
 
+            var trackersButton = MakePill(rowObject.transform, "Trackers", onRequestTrackers);
             var glovesButton = MakePill(rowObject.transform, "Gloves", onRequestGloves);
             var heldButton = MakePill(rowObject.transform, "Held", onRequestHeld);
+            var ledLeft = MakeLedDot(rowObject.transform, "LedLeft");
+            var ledRight = MakeLedDot(rowObject.transform, "LedRight");
             var snText = MakeSnText(rowObject.transform);
 
-            return new ArmSourcePanelRow(glovesButton, heldButton, snText, rowRect);
+            return new ArmSourcePanelRow(
+                trackersButton, glovesButton, heldButton, ledLeft, ledRight, snText, rowRect);
         }
 
-        /// <summary>Refresh pill selection and the SN summary.</summary>
-        public void Refresh(bool bodyActive, bool correctionEnabled, string snSummary)
+        /// <summary>Refresh pill selection, LED colors, and the SN summary.</summary>
+        public void Refresh(
+            PicoBridgeManager.ArmStreamMode mode,
+            bool correctionEnabled,
+            string snSummary,
+            TrackerSideState leftState,
+            TrackerSideState rightState)
         {
-            SetSelected(_glovesButton, bodyActive && correctionEnabled);
-            SetSelected(_heldButton, bodyActive && !correctionEnabled);
+            // Trackers idle (legacy Motion-payload default) lights nothing;
+            // TrackerBody is the device-side tracker chain (t04).
+            SetSelected(_trackersButton, mode == PicoBridgeManager.ArmStreamMode.TrackerBody);
+            SetSelected(_glovesButton, mode == PicoBridgeManager.ArmStreamMode.Body && correctionEnabled);
+            SetSelected(_heldButton, mode == PicoBridgeManager.ArmStreamMode.Body && !correctionEnabled);
+            SetLed(_ledLeft, leftState);
+            SetLed(_ledRight, rightState);
             if (_snText != null)
             {
                 _snText.text = snSummary ?? "--";
@@ -131,6 +167,81 @@ namespace PicoBridge.UI
             text.color = demoted ? MutedTextColor : TextColor;
 
             return button;
+        }
+
+        // Round status dot: 18x18 Image tinted by Refresh. The disc sprite is
+        // generated once at runtime (anti-aliased alpha edge) so the row
+        // stays prefab-free.
+        private static Image MakeLedDot(Transform parent, string name)
+        {
+            var dotObject = new GameObject(name, typeof(RectTransform), typeof(Image));
+            dotObject.transform.SetParent(parent, false);
+
+            var layout = dotObject.AddComponent<LayoutElement>();
+            layout.minWidth = 18f;
+            layout.minHeight = 18f;
+            layout.preferredWidth = 18f;
+            layout.preferredHeight = 18f;
+
+            var image = dotObject.GetComponent<Image>();
+            image.sprite = DotSprite;
+            image.color = LedUnboundColor;
+            image.raycastTarget = false;
+            return image;
+        }
+
+        private static Sprite DotSprite
+        {
+            get
+            {
+                if (_dotSprite != null)
+                    return _dotSprite;
+
+                const int size = 32;
+                var texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                texture.hideFlags = HideFlags.DontSave;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                var pixels = new Color32[size * size];
+                float center = (size - 1) * 0.5f;
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        float dx = x - center;
+                        float dy = y - center;
+                        float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                        // One-pixel anti-aliased falloff at the disc edge.
+                        float alpha = Mathf.Clamp01(center + 0.5f - distance);
+                        byte a = (byte)Mathf.RoundToInt(Mathf.Clamp01(alpha) * 255f);
+                        pixels[y * size + x] = new Color32(255, 255, 255, a);
+                    }
+                }
+                texture.SetPixels32(pixels);
+                texture.Apply(false, true);
+                _dotSprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size);
+                return _dotSprite;
+            }
+        }
+
+        private static void SetLed(Image dot, TrackerSideState state)
+        {
+            if (dot == null)
+                return;
+            switch (state)
+            {
+                case TrackerSideState.Valid:
+                    dot.color = LedValidColor;
+                    break;
+                case TrackerSideState.OpticalLost:
+                    dot.color = LedLostColor;
+                    break;
+                case TrackerSideState.Disconnected:
+                    dot.color = LedDisconnectedColor;
+                    break;
+                default:
+                    dot.color = LedUnboundColor;
+                    break;
+            }
         }
 
         private static TMP_Text MakeSnText(Transform parent)

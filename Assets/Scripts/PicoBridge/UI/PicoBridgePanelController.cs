@@ -142,8 +142,10 @@ namespace PicoBridge.UI
             }
         }
 
-        // Arm-source mode mutex (mocap map t07): code-built pill row under the
-        // server-URL row — Trackers (default) vs Body. No prefab edits.
+        // Arm-source mode mutex (mocap map t07; third state tracker-ik t04):
+        // code-built pill row under the server-URL row — Trackers (device
+        // tracker chain, TrackerBody) vs Gloves/Held (Body + correction
+        // substates). No prefab edits.
         private void ConfigureArmSourceControl()
         {
             if (view == null || view.resolution720Button == null)
@@ -167,6 +169,13 @@ namespace PicoBridge.UI
                         manager.RequestBodyMode();
                     Tracking.BodyMountCorrection.SetEnabled(false);
                     RefreshArmSourceControl();
+                },
+                onRequestTrackers: () =>
+                {
+                    // Device-side tracker chain (t04): puck->IK->body frames.
+                    if (manager != null)
+                        manager.RequestTrackerBodyMode();
+                    RefreshArmSourceControl();
                 });
         }
 
@@ -175,11 +184,18 @@ namespace PicoBridge.UI
             if (_armSourceRow == null || manager == null)
                 return;
 
+            var trackerReport = Tracking.TrackerSessionStatus.Evaluate();
             _armSourceRow.Refresh(
-                manager.sendBody,
+                manager.ArmStream,
                 Tracking.BodyMountCorrection.Enabled,
                 Tracking.MotionTrackerBinding.DescribeSides() +
-                Tracking.TrackerSessionStatus.PanelSuffix());
+                Tracking.TrackerSessionStatus.PanelSuffix(),
+                trackerReport.Left.State,
+                trackerReport.Right.State);
+
+            // t04 ②: the mount-calib knobs are body-mode strap tuning only —
+            // hide them in every other mode (incl. TrackerBody).
+            _mountCalibRow?.SetVisible(manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
         }
 
         // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level
@@ -193,6 +209,10 @@ namespace PicoBridge.UI
 
             _mountCalibRow = MountCalibPanelRow.Build(_armSourceRow.RowRect, AdjustMountCorrection);
             _mountCalibRow?.Refresh();
+            // Body-mode tuning only (t04 ②): hidden at build time in every
+            // other mode; RefreshArmSourceControl keeps it in sync.
+            _mountCalibRow?.SetVisible(manager != null &&
+                manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
         }
 
         private void AdjustMountCorrection(string side, bool isYaw, float delta)

@@ -32,9 +32,15 @@ namespace PicoBridge.UI
         private readonly TMP_Text _leftLevel;
         private readonly TMP_Text _rightYaw;
         private readonly TMP_Text _rightLevel;
+        private readonly GameObject _rowLeft;
+        private readonly GameObject _rowRight;
 
-        private MountCalibPanelRow(TMP_Text leftYaw, TMP_Text leftLevel, TMP_Text rightYaw, TMP_Text rightLevel)
+        private MountCalibPanelRow(
+            GameObject rowLeft, GameObject rowRight,
+            TMP_Text leftYaw, TMP_Text leftLevel, TMP_Text rightYaw, TMP_Text rightLevel)
         {
+            _rowLeft = rowLeft;
+            _rowRight = rowRight;
             _leftYaw = leftYaw;
             _leftLevel = leftLevel;
             _rightYaw = rightYaw;
@@ -52,6 +58,8 @@ namespace PicoBridge.UI
             var leftLevel = (TMP_Text)null;
             var rightYaw = (TMP_Text)null;
             var rightLevel = (TMP_Text)null;
+            GameObject rowLeft = null;
+            GameObject rowRight = null;
 
             var anchor = anchorRow;
             foreach (var side in new[] { "L", "R" })
@@ -60,6 +68,10 @@ namespace PicoBridge.UI
                     onYaw: d => onAdjust?.Invoke(side == "L" ? "left" : "right", true, d),
                     onLevel: d => onAdjust?.Invoke(side == "L" ? "left" : "right", false, d));
                 anchor = row;
+                if (side == "L")
+                    rowLeft = row.gameObject;
+                else
+                    rowRight = row.gameObject;
             }
 
             var rowObjectL = anchorRow.parent.Find("MountCalibL");
@@ -75,7 +87,8 @@ namespace PicoBridge.UI
                 rightLevel = FindText(rowObjectR, "LevelValue");
             }
 
-            return new MountCalibPanelRow(leftYaw, leftLevel, rightYaw, rightLevel);
+            return new MountCalibPanelRow(
+                rowLeft, rowRight, leftYaw, leftLevel, rightYaw, rightLevel);
         }
 
         private static RectTransform BuildRow(
@@ -195,6 +208,17 @@ namespace PicoBridge.UI
         {
             var found = row.Find(name);
             return found != null ? found.GetComponent<TMP_Text>() : null;
+        }
+
+        /// <summary>Body-mode tuning only (t04 ②): show/hide both stepper
+        /// rows — the knobs are strapped-controller correction params and are
+        /// irrelevant (and visually noisy) in tracker mode.</summary>
+        public void SetVisible(bool visible)
+        {
+            if (_rowLeft != null)
+                _rowLeft.SetActive(visible);
+            if (_rowRight != null)
+                _rowRight.SetActive(visible);
         }
 
         /// <summary>Update the four value texts from the correction store.</summary>

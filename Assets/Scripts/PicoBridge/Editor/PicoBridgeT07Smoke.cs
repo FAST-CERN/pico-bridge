@@ -52,7 +52,7 @@ namespace PicoBridge.Editor
                 Check(row != null, "ArmSourceControl row built under panel");
                 Check(row.Find("GlovesButton") != null, "Gloves pill built (deploy t10 rework)");
                 Check(row.Find("HeldButton") != null, "Held pill built");
-                Check(row.Find("TrackersButton") == null, "Trackers pill removed (UX review; set_motion still works)");
+                Check(row.Find("TrackersButton") != null, "Trackers pill restored (t04: routes to TrackerBody; legacy set_motion still works)");
                 Check(row.Find("TrackerBinding") != null, "SN binding text built");
 
                 // ── manager: receiver-format BridgeControl drives the mutex ──

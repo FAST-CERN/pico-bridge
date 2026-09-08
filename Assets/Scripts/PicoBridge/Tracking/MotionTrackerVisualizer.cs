@@ -73,8 +73,8 @@ namespace PicoBridge.Tracking
 
         private void Start()
         {
-            _left = BuildSide("TrackerGizmoLeft", LeftColor);
-            _right = BuildSide("TrackerGizmoRight", RightColor);
+            _left = BuildSide("TrackerGizmoLeft", "L", LeftColor);
+            _right = BuildSide("TrackerGizmoRight", "R", RightColor);
         }
 
         private void Update()
@@ -130,7 +130,7 @@ namespace PicoBridge.Tracking
 
         // ── construction ─────────────────────────────────────
 
-        private SideGizmo BuildSide(string name, Color sideColor)
+        private SideGizmo BuildSide(string name, string sideLabel, Color sideColor)
         {
             var root = new GameObject(name);
             root.transform.SetParent(transform, false);
@@ -141,6 +141,22 @@ namespace PicoBridge.Tracking
                 Quaternion.identity, Vector3.one * cubeSize);
             gizmo.CubeMaterial = NewLitMaterial(sideColor);
             gizmo.Cube.sharedMaterial = gizmo.CubeMaterial;
+
+            // t04 ④: rigid L/R letter above the cube, dyed with the side
+            // color — identifies the side at a glance in-headset, and stays
+            // side-colored on the gray ghost so a lost side is still
+            // attributable. Single-sided TextMesh is fine at this size.
+            var labelObject = new GameObject("sideLabel");
+            labelObject.transform.SetParent(root.transform, false);
+            labelObject.transform.localPosition = new Vector3(0f, 0.042f, 0f);
+            var label = labelObject.AddComponent<TextMesh>();
+            label.text = sideLabel;
+            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.fontSize = 64;
+            label.characterSize = 0.005f;
+            label.anchor = TextAnchor.LowerCenter;
+            label.alignment = TextAlignment.Center;
+            label.color = sideColor;
 
             // Axis bars: thin cubes along local +X/+Y/+Z with a fatter tip at
             // the positive end so direction is readable at a glance.
