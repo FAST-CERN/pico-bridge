@@ -26,14 +26,15 @@ namespace PicoBridge.Tracking
         // Residual gates (t05 Q2; device rounds tune). 2026-09-08 rounds:
         // position 0.325 -> 0.071 m with in-app guidance, gate to 0.10
         // (mirrored/garbage explodes past 0.3 m). Rotation gate is a
-        // REFLECTION catch only: the pucks mount on the thumb-base lateral
-        // faces with uncontrolled rotation, and a rigid R absorbs any mount
-        // angle — the rot residual measures the POSE-ORIENTATION literals
-        // vs the operator's natural hand orientations (first-pass
-        // conventions), which can't gate tighter than tens of degrees.
-        // Mirrored data still explodes past ~100 deg.
+        // TOTAL-GARBAGE catch only (150°): the pucks mount on the
+        // thumb-base lateral faces with uncontrolled rotation, the solved R
+        // comes from POSITIONS alone (literals cannot corrupt the stored
+        // calibration), and the rot residual measures the pose-orientation
+        // literals vs the operator's natural hand orientations — a correct
+        // round measured 118° on first-pass literals, so the gate must sit
+        // above that. The inverse-quat bug class lands ~90-180°.
         public const float PositionGateMeters = 0.10f;
-        public const float RotationGateDegrees = 60f;
+        public const float RotationGateDegrees = 150f;
 
         private struct Sample
         {

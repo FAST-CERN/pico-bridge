@@ -251,14 +251,17 @@ namespace PicoBridge.Editor
                   afterReject.rotationRmsDeg == committedRight.rotationRmsDeg,
                 "session: rejected solve does not overwrite the committed store");
 
-            PublishPose(0, 0f, 0f);
+            // Every pose 180° off: rms 180° clears even the 150° garbage
+            // gate (a single pose can only reach rms 104°, and a correct
+            // round measured 118° on first-pass literals).
+            PublishPose(0, 0f, 180f);
             TrackerCalibrationSession.Capture();
-            PublishPose(1, 0f, 0f);
+            PublishPose(1, 0f, 180f);
             TrackerCalibrationSession.Capture();
-            PublishPose(2, 0f, 110f); // 110° on the last pose -> rms 63° over the 60° reflection gate
+            PublishPose(2, 0f, 180f);
             TrackerCalibrationSession.Capture();
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Rejected,
-                "session: rotation gate rejects (orientation residual is the reflection catch)");
+                "session: rotation gate rejects all-180° garbage (inverse-quat bug class)");
 
             PublishPose(0, 0f, 0f);
             TrackerCalibrationSession.Capture();
