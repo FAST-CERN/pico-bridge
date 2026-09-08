@@ -23,9 +23,13 @@ namespace PicoBridge.Tracking
         /// cache); device default reads the XR head camera.</summary>
         public delegate bool HeadPoseDelegate(out Vector3 position, out Quaternion rotation);
 
-        // Residual gates (t05 Q2; device rounds tune).
-        public const float PositionGateMeters = 0.02f;
-        public const float RotationGateDegrees = 10f;
+        // Residual gates (t05 Q2; device rounds tune). 2026-09-08 round two:
+        // in-app guidance brought pose-adherence residual from 0.325 m to
+        // 0.071 m on untuned literals — gates move to first-gen sanity
+        // levels (still catch mirrored/garbage data, which explodes past
+        // 0.3 m / 40°).
+        public const float PositionGateMeters = 0.10f;
+        public const float RotationGateDegrees = 15f;
 
         private struct Sample
         {

@@ -240,7 +240,7 @@ namespace PicoBridge.Editor
             TrackerCalibrationSession.Capture();
             PublishPose(1, 0f, 0f);
             TrackerCalibrationSession.Capture();
-            PublishPose(2, 0.10f, 0f); // 10cm position error on the last pose
+            PublishPose(2, 0.25f, 0f); // 25cm on the last pose -> rms 0.144m over the 0.10 gate
             Check(TrackerCalibrationSession.Capture(),
                 "session: over-gate capture still fills the third slot (gate fires at solve)");
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Rejected &&
@@ -255,7 +255,7 @@ namespace PicoBridge.Editor
             TrackerCalibrationSession.Capture();
             PublishPose(1, 0f, 0f);
             TrackerCalibrationSession.Capture();
-            PublishPose(2, 0f, 25f); // 25° rotation error on the last pose
+            PublishPose(2, 0f, 40f); // 40° on the last pose -> rms 23° over the 15° gate
             TrackerCalibrationSession.Capture();
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Rejected,
                 "session: rotation gate rejects (orientation residual is the reflection catch)");

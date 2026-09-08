@@ -175,10 +175,10 @@ namespace PicoBridge.Editor
             for (int pose = 0; pose < 3; pose++)
             {
                 PublishPose(pose);
-                // 10 cm off on the last pose: over the position gate.
+                // 25 cm off on the last pose: rms 0.144 m over the 0.10 gate.
                 if (pose == 2)
                     TrackerFrameCache.PublishValid("left", 7,
-                        new Vector3(0.10f, 0f, 0f), Quaternion.identity, TrackerFrameCache.Clock());
+                        new Vector3(0.25f, 0f, 0f), Quaternion.identity, TrackerFrameCache.Clock());
                 TickSeconds(TrackerCalibrationGuide.PrepSeconds +
                             TrackerCalibrationGuide.HoldSeconds + Eps);
             }
