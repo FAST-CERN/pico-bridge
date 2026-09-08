@@ -28,15 +28,18 @@ namespace PicoBridge
         public bool sendMotion = false;
 
         [Header("Arm Source (mocap map t07)")]
-        // Upper-body source mutex: Trackers (HMD + 2 motion trackers, the
-        // mocap-map default) or Body (PICO body tracking; needs gloves off +
-        // controllers held). At most one of sendBody/sendMotion is ever on.
+        // Upper-body source mutex, three states (t03): Trackers (HMD + 2
+        // motion trackers, the mocap-map Motion-payload default), Body (PICO
+        // body tracking; gloves off + controllers held; Gloves/Held pills are
+        // its correction substates), or TrackerBody (the device-side tracker
+        // chain emitting 24-joint Body frames — transitional content until
+        // the t09 IK lands). At most one arm source is ever active.
         [SerializeField] private ArmStreamMode armStream = ArmStreamMode.Trackers;
         // Operator height in meters -> body-tracking bone lengths (ratio table).
         [Range(1.0f, 2.2f)]
         [SerializeField] private float operatorHeight = 1.75f;
 
-        public enum ArmStreamMode { Trackers, Body }
+        public enum ArmStreamMode { Trackers, Body, TrackerBody }
 
         public ArmStreamMode ArmStream => armStream;
         public float OperatorHeight => operatorHeight;
@@ -111,6 +114,10 @@ namespace PicoBridge
 
 #if !UNITY_EDITOR
             _collector = new PicoTrackingCollector();
+            // Transitional tracker-body frames (t03) read the HMD pose from
+            // the same predicted-sensor call AppendHead uses (D3: raw, no
+            // flip). Injectable so editor smokes feed golden literals.
+            TrackerBodyHead.Source = ReadTrackerHeadPose;
 #endif
             _trackingInterval = 1f / trackingFps;
         }
@@ -193,6 +200,7 @@ namespace PicoBridge
                 _collector.ControllerEnabled = sendControllers;
                 _collector.HandTrackingEnabled = sendHands;
                 _collector.BodyTrackingEnabled = sendBody;
+                _collector.TrackerBodyEnabled = armStream == ArmStreamMode.TrackerBody;
                 _collector.MotionTrackerEnabled = sendMotion;
                 json = _collector.CollectJson();
                 #endif
@@ -338,6 +346,27 @@ namespace PicoBridge
                 Debug.Log($"[PicoBridge] BridgeControl: set_body={enabled} height={operatorHeight:0.00}");
             }
 
+            // Tracker-body mode (tracker-ik map t03, D4): device-side tracker
+            // chain output over the Body channel. true -> TrackerBody (SDK
+            // body tracking stopped; transitional frame until t09 IK content);
+            // false -> back to the Trackers idle default (symmetric with
+            // set_body). The receiver package stays 0.2.x-untouched — dev
+            // scripts push this raw until the arm_source fog ticket (t11/t12)
+            // lands the third value.
+            if (channel == "tracking" && type == "set_trackers")
+            {
+                bool enabled = ExtractBool(json, "enabled") ?? false;
+                if (enabled)
+                    SetArmStream(ArmStreamMode.TrackerBody);
+                else
+                {
+                    armStream = ArmStreamMode.Trackers;
+                    ApplyArmStream();
+                }
+                Debug.Log($"[PicoBridge] BridgeControl: set_trackers={enabled}");
+                return;
+            }
+
             // Mount-correction params (bodytrack-deploy t07): per-side
             // yaw/level degrees applied post-AppendBody on the Wrist/Hand
             // joints. Remote push persists on-device as the boot default
@@ -396,6 +425,11 @@ namespace PicoBridge
             SetArmStream(ArmStreamMode.Body);
         }
 
+        public void RequestTrackerBodyMode()
+        {
+            SetArmStream(ArmStreamMode.TrackerBody);
+        }
+
         private void ApplyArmStream()
         {
             switch (armStream)
@@ -408,6 +442,17 @@ namespace PicoBridge
                     sendMotion = false;
                     sendBody = true;
                     BodyTrackingRuntime.EnsureStarted(operatorHeight);
+                    break;
+                case ArmStreamMode.TrackerBody:
+                    // t03 D2: parallel third state — Body wire output via the
+                    // transitional synthetic frame, motion payload off, SDK
+                    // body tracking must not run (OS-level independent
+                    // tracking vs body mocap are exclusive anyway). No mount
+                    // correction: that is SDK-body strapped-controller
+                    // specific; the tracker chain calibrates itself (t05).
+                    sendMotion = false;
+                    sendBody = true;
+                    BodyTrackingRuntime.EnsureStopped();
                     break;
             }
         }
@@ -586,5 +631,25 @@ namespace PicoBridge
             }
 #endif
         }
+
+#if !UNITY_EDITOR
+        private static bool ReadTrackerHeadPose(out Vector3 position, out Quaternion rotation, out long timestampUs)
+        {
+            PxrSensorState2 state = default;
+            int frameIdx = 0;
+            PXR_System.GetPredictedMainSensorStateNew(ref state, ref frameIdx);
+            position = new Vector3(
+                state.pose.position.x,
+                state.pose.position.y,
+                state.pose.position.z);
+            rotation = new Quaternion(
+                state.pose.orientation.x,
+                state.pose.orientation.y,
+                state.pose.orientation.z,
+                state.pose.orientation.w);
+            timestampUs = (long)(Time.realtimeSinceStartupAsDouble * 1_000_000);
+            return true;
+        }
+#endif
     }
 }

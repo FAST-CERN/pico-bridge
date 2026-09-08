@@ -19,6 +19,7 @@ namespace PicoBridge.Tracking
         public bool HandTrackingEnabled = true;
         public bool BodyTrackingEnabled = false;
         public bool MotionTrackerEnabled = false;
+        public bool TrackerBodyEnabled = false;
 
         private readonly StringBuilder _sb = new StringBuilder(4096);
 
@@ -49,8 +50,12 @@ namespace PicoBridge.Tracking
             if (HandTrackingEnabled)
                 AppendHands();
 
-            // Body
-            if (BodyTrackingEnabled)
+            // Body: SDK body tracking, or the transitional tracker-mode frame
+            // (t03). ApplyArmStream guarantees at most one is ever on
+            // (TrackerBody also leaves sendBody true — tracker frames win).
+            if (TrackerBodyEnabled)
+                AppendTrackerBody();
+            else if (BodyTrackingEnabled)
                 AppendBody();
 
             // Motion trackers
@@ -282,6 +287,51 @@ namespace PicoBridge.Tracking
             _sb.Append(',');
             AppendPoseComponent((float)rd.wacce[2]);
             _sb.Append('"');
+        }
+
+        // ── Transitional tracker body frame (t03) ─────────
+
+        // Same Body wire contract as AppendBody (poseSpace/alignment/24
+        // joints/len), but the content is the D3-minimal transitional frame:
+        // identity local poses everywhere except Head (index 15, receiver
+        // BODY_JOINT_NAMES order) = the RAW HMD world pose in AppendHead's
+        // own frame — deliberately NOT flipped, placeholder until t09 fills
+        // real IK content. va/wva zero. FK consumers see a collapsed
+        // skeleton with a world-pose-in-local-slot head by design; documented
+        // transitional cost.
+        private const int HeadJointIndex = 15;
+
+        private void AppendTrackerBody()
+        {
+            var headPos = Vector3.zero;
+            var headRot = Quaternion.identity;
+            long t = 0;
+            var source = TrackerBodyHead.Source;
+            if (source == null || !source(out headPos, out headRot, out t))
+            {
+                headPos = Vector3.zero;
+                headRot = Quaternion.identity;
+                t = 0;
+            }
+
+            _sb.Append(",\"Body\":{");
+            _sb.Append("\"poseSpace\":\"pico_body_local\"");
+            _sb.Append(",\"alignment\":\"pico_native\"");
+            _sb.Append(",\"joints\":[");
+            for (int i = 0; i < BodyJointCount; i++)
+            {
+                if (i > 0) _sb.Append(',');
+                _sb.Append("{\"p\":\"");
+                if (i == HeadJointIndex)
+                    AppendPose(headPos.x, headPos.y, headPos.z, headRot.x, headRot.y, headRot.z, headRot.w);
+                else
+                    AppendPose(0f, 0f, 0f, 0f, 0f, 0f, 1f);
+                _sb.Append($"\",\"t\":{t}");
+                _sb.Append(",\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
+                _sb.Append(",\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
+                _sb.Append('}');
+            }
+            _sb.Append($"],\"len\":{BodyJointCount}}}");
         }
 
         // ── Motion Trackers ───────────────────────────────
