@@ -82,8 +82,10 @@ namespace PicoBridge
         {
             // Mount-correction config must load on the main thread
             // (persistentDataPath) before any BridgeControl or collector
-            // touch can race it from the TCP receive thread.
+            // touch can race it from the TCP receive thread. Same for the
+            // tracker-hand calibration store (t05).
             Tracking.BodyMountCorrection.EnsureLoaded();
+            Tracking.TrackerHandCalibration.EnsureLoaded();
 
             _tcp = gameObject.AddComponent<PicoTcpClient>();
             _tcp.serverAddress = serverAddress;
@@ -118,6 +120,10 @@ namespace PicoBridge
             // the same predicted-sensor call AppendHead uses (D3: raw, no
             // flip). Injectable so editor smokes feed golden literals.
             TrackerBodyHead.Source = ReadTrackerHeadPose;
+            // Guided calibration targets compose head ∘ local in the SAME
+            // Unity frame as the tracker cache (t05 Q1) — the XR head
+            // camera, not the PXR raw pose.
+            Tracking.TrackerCalibrationSession.HeadSource = ReadHeadUnityPose;
 #endif
             _trackingInterval = 1f / trackingFps;
         }
@@ -372,6 +378,27 @@ namespace PicoBridge
                     ApplyArmStream();
                 }
                 Debug.Log($"[PicoBridge] BridgeControl: set_trackers={enabled}");
+                return;
+            }
+
+            // Guided hand calibration session (tracker-ik map t05, Q2):
+            // three-pose dual-side capture driven by dev scripts now and the
+            // t06 panel Calib button later. Receiver package stays 0.2.x
+            // untouched. State/reason land in the log for the round.
+            if (channel == "tracking" && type == "set_calibration")
+            {
+                string action = ExtractString(json, "action");
+                if (action == "begin")
+                    Tracking.TrackerCalibrationSession.Begin();
+                else if (action == "capture")
+                    Tracking.TrackerCalibrationSession.Capture();
+                else if (action == "abort")
+                    Tracking.TrackerCalibrationSession.Abort();
+                var state = Tracking.TrackerCalibrationSession.CurrentState;
+                var reason = Tracking.TrackerCalibrationSession.LastRejectReason;
+                Debug.Log($"[PicoBridge] BridgeControl: set_calibration {action} -> {state} " +
+                          $"pose {Tracking.TrackerCalibrationSession.NextPoseIndex}" +
+                          (reason.Length > 0 ? $" ({reason})" : ""));
                 return;
             }
 
@@ -656,6 +683,22 @@ namespace PicoBridge
                 state.pose.orientation.z,
                 state.pose.orientation.w);
             timestampUs = (long)(Time.realtimeSinceStartupAsDouble * 1_000_000);
+            return true;
+        }
+
+        // Head pose in the Unity stage frame — the same frame as the flipped
+        // tracker cache (calibration targets compose with this, t05 Q1).
+        private static bool ReadHeadUnityPose(out Vector3 position, out Quaternion rotation)
+        {
+            var cam = Camera.main;
+            if (cam == null)
+            {
+                position = default;
+                rotation = default;
+                return false;
+            }
+            position = cam.transform.position;
+            rotation = cam.transform.rotation;
             return true;
         }
 #endif
