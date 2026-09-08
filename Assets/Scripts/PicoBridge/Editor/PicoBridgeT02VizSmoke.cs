@@ -72,6 +72,51 @@ namespace PicoBridge.Editor
                 TrackerFrameCache.Clock = () => 105f; // everything stale
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);
                 Check(!leftRootGo.activeSelf, "viz: hidden while immersive regardless of data");
+
+                // ── t07: mapped-hand gizmo (calibration verification) ──
+                immersive = false;
+                TrackerFrameCache.Clock = () => 200f;
+                TrackerHandCalibration.ResetForTest(
+                    System.IO.Path.Combine(Application.temporaryCachePath, "t02-t07-store.json"));
+
+                // Uncalibrated: full-color puck, hand gizmo hidden.
+                TrackerFrameCache.PublishValid("left", 7, Pose, Rot, 200f);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                var handGizmo = GetPrivate(viz, "_leftHand");
+                var handRootGo = (GameObject)GetPrivate(handGizmo, "Root");
+                var handCubeMat = (Material)GetPrivate(handGizmo, "CubeMaterial");
+                Check(!handRootGo.activeSelf && Nearly(cubeMat.color.r, 1.0f),
+                    "t07: uncalibrated side keeps full-color puck, hand gizmo hidden");
+
+                // Identity-R + known-t calibration: hand gizmo at pose+t with
+                // the same rotation; the raw puck dims.
+                var map = new TrackerHandCalibration.SideParams
+                {
+                    qx = 0f, qy = 0f, qz = 0f, qw = 1f,
+                    tx = 0.1f, ty = 0.05f, tz = -0.2f,
+                    positionRms = 0.01f, rotationRmsDeg = 2f,
+                    poseSet = "chest/side/front",
+                };
+                TrackerHandCalibration.Commit("left", map);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                var rotN = Rot.normalized; // Unity normalizes on assignment
+                Check(handRootGo.activeSelf &&
+                      Nearly(handRootGo.transform.position.x, Pose.x + 0.1f) &&
+                      Nearly(handRootGo.transform.position.y, Pose.y + 0.05f) &&
+                      Nearly(handRootGo.transform.position.z, Pose.z - 0.2f) &&
+                      Nearly(handRootGo.transform.rotation.x, rotN.x) && Nearly(handRootGo.transform.rotation.w, rotN.w),
+                    "t07: calibrated side renders hand gizmo at puck pose + t (identity R)");
+                Check(leftRootGo.activeSelf && cubeMat.color.r < 0.6f && cubeMat.color.r > 0.3f,
+                    "t07: raw puck gizmo dims under an active calibration");
+                Check(handCubeMat.color.r > 0.9f, "t07: hand gizmo carries the bright side color");
+
+                // Optical loss under calibration: hand gizmo ghosts at the
+                // last mapped pose.
+                TrackerFrameCache.PublishInvalid("left", 7, 200.2f);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                Check(handRootGo.activeSelf && Nearly(handRootGo.transform.position.x, Pose.x + 0.1f) &&
+                      Nearly(handCubeMat.color.r, 0.4f),
+                    "t07: lost side ghosts the hand gizmo at the last mapped pose");
             }
             finally
             {

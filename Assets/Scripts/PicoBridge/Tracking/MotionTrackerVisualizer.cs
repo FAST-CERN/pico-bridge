@@ -49,10 +49,15 @@ namespace PicoBridge.Tracking
             public Material[] AxisMaterials = new Material[3];
             public Color SideColor;
             public bool HasPose;
+            public bool IsHand;
         }
 
         private SideGizmo _left;
         private SideGizmo _right;
+        // t07: the mapped-hand mirrors (bright calibration verification
+        // gizmos; hidden until a side's calibration is committed).
+        private SideGizmo _leftHand;
+        private SideGizmo _rightHand;
         private float _sampleTimer;
 
         /// <summary>Test seam: forces the immersive-FPV visibility rule.</summary>
@@ -75,6 +80,8 @@ namespace PicoBridge.Tracking
         {
             _left = BuildSide("TrackerGizmoLeft", "L", LeftColor);
             _right = BuildSide("TrackerGizmoRight", "R", RightColor);
+            _leftHand = BuildSide("HandGizmoLeft", "L", LeftColor, hand: true);
+            _rightHand = BuildSide("HandGizmoRight", "R", RightColor, hand: true);
         }
 
         private void Update()
@@ -95,16 +102,35 @@ namespace PicoBridge.Tracking
             // tests fill the cache.
             // t02: same display rule as the body avatar — hidden while the
             // stereo immersive FPV screen owns the view.
+            var hand = side == "left" ? _leftHand : _rightHand;
             if (ImmersiveHidesVisuals() ||
                 !MotionTrackerBinding.TryGetConnectedSn(side, out long sn) ||
                 !TrackerFrameCache.TryGetFrame(side, out var frame) || frame.Sn != sn ||
                 !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()) || !frame.HasPose)
             {
                 gizmo.Root.SetActive(false);
+                if (hand != null)
+                    hand.Root.SetActive(false);
                 return;
             }
 
-            SetGizmoPose(gizmo, frame.Position, frame.Rotation, frame.Valid);
+            // t07: when this side carries a committed calibration, the raw
+            // puck gizmo dims and the bright mapped-hand gizmo takes over
+            // (TryMap in the same stage frame — zero conversion).
+            bool calibrated = false;
+            var handPos = Vector3.zero;
+            var handRot = Quaternion.identity;
+            if (hand != null)
+                calibrated = TrackerHandCalibration.TryMap(
+                    side, frame.Position, frame.Rotation, out handPos, out handRot);
+            SetGizmoPose(gizmo, frame.Position, frame.Rotation, frame.Valid, muted: calibrated);
+            if (hand != null)
+            {
+                if (calibrated)
+                    SetGizmoPose(hand, handPos, handRot, frame.Valid, bright: true);
+                else
+                    hand.Root.SetActive(false);
+            }
         }
 
         private bool ImmersiveHidesVisuals()
@@ -115,8 +141,11 @@ namespace PicoBridge.Tracking
             return immersive != null && immersive.IsImmersiveActive;
         }
 
-        /// <summary>Update pose when valid; keep the last pose as a ghost when lost.</summary>
-        private void SetGizmoPose(SideGizmo g, Vector3 position, Quaternion rotation, bool valid)
+        /// <summary>Update pose when valid; keep the last pose as a ghost
+        /// when lost. ``muted`` dims a valid gizmo (raw puck under an active
+        /// calibration); ``bright`` boosts it (the t07 hand gizmo).</summary>
+        private void SetGizmoPose(SideGizmo g, Vector3 position, Quaternion rotation, bool valid,
+            bool muted = false, bool bright = false)
         {
             if (valid || !g.HasPose)
             {
@@ -125,20 +154,21 @@ namespace PicoBridge.Tracking
             }
             if (!g.Root.activeSelf)
                 g.Root.SetActive(true);
-            ApplyGizmoState(g, valid);
+            ApplyGizmoState(g, valid, muted, bright);
         }
 
         // ── construction ─────────────────────────────────────
 
-        private SideGizmo BuildSide(string name, string sideLabel, Color sideColor)
+        private SideGizmo BuildSide(string name, string sideLabel, Color sideColor, bool hand = false)
         {
             var root = new GameObject(name);
             root.transform.SetParent(transform, false);
 
-            var gizmo = new SideGizmo { Root = root, SideColor = sideColor };
+            var gizmo = new SideGizmo { Root = root, SideColor = sideColor, IsHand = hand };
 
+            var size = cubeSize * (hand ? 1.15f : 1f);
             gizmo.Cube = CreatePrimitiveCube(root.transform, "cube", Vector3.zero,
-                Quaternion.identity, Vector3.one * cubeSize);
+                Quaternion.identity, Vector3.one * size);
             gizmo.CubeMaterial = NewLitMaterial(sideColor);
             gizmo.Cube.sharedMaterial = gizmo.CubeMaterial;
 
@@ -223,17 +253,24 @@ namespace PicoBridge.Tracking
             return material;
         }
 
-        private void ApplyGizmoState(SideGizmo g, bool valid)
+        private void ApplyGizmoState(SideGizmo g, bool valid, bool muted = false, bool bright = false)
         {
-            g.CubeMaterial.color = valid ? g.SideColor : GhostColor;
+            // t07 states: valid+bright = the mapped-hand gizmo (calibration
+            // verdict, strongest presence); valid = classic puck;
+            // valid+muted = raw puck under an active calibration (context);
+            // invalid = gray ghost either way.
+            Color baseColor = valid ? (muted ? g.SideColor * 0.45f : g.SideColor) : GhostColor;
+            float emission = valid ? (bright ? 0.9f : muted ? 0.15f : 0.4f) : 0.1f;
+            g.CubeMaterial.color = baseColor;
             if (g.CubeMaterial.HasProperty("_EmissionColor"))
-                g.CubeMaterial.SetColor("_EmissionColor", (valid ? g.SideColor : GhostColor) * (valid ? 0.4f : 0.1f));
+                g.CubeMaterial.SetColor("_EmissionColor", baseColor * emission);
+            float axisDim = valid ? (muted ? 0.35f : 1f) : 0.3f;
             for (int axis = 0; axis < 3; axis++)
             {
-                var dim = valid ? AxisColors[axis] : AxisColors[axis] * 0.3f;
+                var dim = AxisColors[axis] * axisDim;
                 g.AxisMaterials[axis].color = dim;
                 if (g.AxisMaterials[axis].HasProperty("_EmissionColor"))
-                    g.AxisMaterials[axis].SetColor("_EmissionColor", dim * 0.4f);
+                    g.AxisMaterials[axis].SetColor("_EmissionColor", dim * (bright ? 0.9f : 0.4f));
             }
         }
     }
