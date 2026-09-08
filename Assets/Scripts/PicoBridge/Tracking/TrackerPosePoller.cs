@@ -90,12 +90,19 @@ namespace PicoBridge.Tracking
 
             if (valid)
             {
-                // pico_tracker_local flip (same as the retired inline path):
-                // -Z, -Qz, -Qw.
+                // pico_tracker_local flip: position -Z (validated on device
+                // by the t05 Kabsch round, 0.071 m residual). The matching
+                // ORIENTATION conversion under the same Z-mirror is
+                // R_U = M R M^-1: mirror the vector part, KEEP the scalar —
+                // (Qx, Qy, -Qz, Qw). The retired inline path (and the t01
+                // golden copied from it) also negated Qw, which stores the
+                // INVERSE rotation — positions stayed rigid-consistent but
+                // every orientation residual exploded to mirror scale
+                // (2026-09-08 round: 118 deg rms reject with correct poses).
                 TrackerFrameCache.PublishValid(
                     side, sn,
                     new Vector3(p.x, p.y, -p.z),
-                    new Quaternion(q.x, q.y, -q.z, -q.w),
+                    new Quaternion(q.x, q.y, -q.z, q.w),
                     now);
             }
             else

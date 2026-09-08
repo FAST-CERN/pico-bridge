@@ -18,11 +18,13 @@ namespace PicoBridge.Editor
     /// </summary>
     public static class PicoBridgeT01TrackerSmoke
     {
-        // Raw PXR-frame sample; the flip is (-Z, -Qz, -Qw) per t01 §4 / t07 addendum.
+        // Raw PXR-frame sample; the flip is (-Z, -Qz) with Qw kept: R_U = M R M^-1
+        // mirrors the vector part only (t05 device round 2026-09-08 proved the
+        // old -Qw stored the inverse rotation, 118° residual).
         private static readonly Vector3 RawPos = new Vector3(0.5f, -0.25f, 1.0f);
         private static readonly Quaternion RawRot = new Quaternion(0.1f, 0.2f, 0.3f, 0.9f);
         private static readonly Vector3 FlippedPos = new Vector3(0.5f, -0.25f, -1.0f);
-        private static readonly Quaternion FlippedRot = new Quaternion(0.1f, 0.2f, -0.3f, -0.9f);
+        private static readonly Quaternion FlippedRot = new Quaternion(0.1f, 0.2f, -0.3f, 0.9f);
 
         public static void Run()
         {
@@ -51,8 +53,8 @@ namespace PicoBridge.Editor
             Check(Nearly(left.Position.x, 0.5f) && Nearly(left.Position.y, -0.25f) && Nearly(left.Position.z, -1.0f),
                 "cache: stored position is the flipped golden (0.5,-0.25,-1.0)");
             Check(Nearly(left.Rotation.x, 0.1f) && Nearly(left.Rotation.y, 0.2f) &&
-                  Nearly(left.Rotation.z, -0.3f) && Nearly(left.Rotation.w, -0.9f),
-                "cache: stored rotation is the flipped golden (0.1,0.2,-0.3,-0.9)");
+                  Nearly(left.Rotation.z, -0.3f) && Nearly(left.Rotation.w, 0.9f),
+                "cache: stored rotation is the flipped golden (0.1,0.2,-0.3,0.9)");
 
             TrackerFrameCache.PublishInvalid("left", 7, 100.2f);
             Check(TrackerFrameCache.TryGetFrame("left", out var ghost) && !ghost.Valid &&
@@ -86,8 +88,8 @@ namespace PicoBridge.Editor
 
                 poller.ManualPoll(100f);
                 Check(TrackerFrameCache.TryGetFrame("left", out var pl) && pl.Valid && pl.Sn == 7 &&
-                      Nearly(pl.Position.z, -1.0f) && Nearly(pl.Rotation.z, -0.3f) && Nearly(pl.Rotation.w, -0.9f),
-                    "poller: raw PXR pose flipped into cache (-Z, -Qz, -Qw)");
+                      Nearly(pl.Position.z, -1.0f) && Nearly(pl.Rotation.z, -0.3f) && Nearly(pl.Rotation.w, 0.9f),
+                    "poller: raw PXR pose flipped into cache (-Z, -Qz; Qw kept - M-conjugated quat, not the inverse)");
                 Check(MotionTrackerBinding.TryGetOpticalSample("left", out bool optical) && optical,
                     "poller: optical sample fed true on valid");
                 Check(!TrackerFrameCache.TryGetFrame("right", out _),
@@ -239,7 +241,7 @@ namespace PicoBridge.Editor
             sb.Clear();
             InvokePrivate(collector, "AppendTrackerSide", "left");
             Check(sb.ToString() ==
-                ",\"left\":{\"sn\":7,\"p\":\"0.500000,-0.250000,-1.000000,0.100000,0.200000,-0.300000,-0.900000\",\"valid\":true}",
+                ",\"left\":{\"sn\":7,\"p\":\"0.500000,-0.250000,-1.000000,0.100000,0.200000,-0.300000,0.900000\",\"valid\":true}",
                 "wire: valid side serializes the receiver-0.2.x golden literal");
 
             sb.Clear();
