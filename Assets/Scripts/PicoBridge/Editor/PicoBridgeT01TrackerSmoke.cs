@@ -196,6 +196,10 @@ namespace PicoBridge.Editor
             var vizObject = new GameObject("T01SmokeViz");
             try
             {
+                // t10 moved the ghost-gray to a 0.7s sustained-loss window;
+                // this section asserts the LEGACY immediate-gray semantics,
+                // so pin the grace seam to 0 (T02 covers the grace window).
+                MotionTrackerVisualizer.GhostGraceS = 0f;
                 var viz = vizObject.AddComponent<MotionTrackerVisualizer>();
                 InvokePrivate(viz, "Start");
                 var leftGizmo = GetPrivate(viz, "_left");
@@ -231,6 +235,7 @@ namespace PicoBridge.Editor
             }
             finally
             {
+                MotionTrackerVisualizer.GhostGraceS = 0.7f;
                 UnityEngine.Object.DestroyImmediate(vizObject);
             }
 

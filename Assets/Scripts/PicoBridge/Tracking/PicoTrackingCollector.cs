@@ -387,15 +387,20 @@ namespace PicoBridge.Tracking
             _sb.Append($"],\"len\":{BodyJointCount}}}");
         }
 
-        /// <summary>One side's IK hand input from the tracker cache: fresh
-        /// optically-valid side → TryMap (t17 trim) pose; anything else
-        /// (stale, absent, invalid) → invalid, which the solver's state
-        /// machine turns into Held-then-Static.</summary>
+        /// <summary>One side's IK hand input from the tracker cache (t19
+        /// tracking semantics): tracking = a pose has ever been seen AND the
+        /// cache is fresh — the cached last pose carries the hand through
+        /// stillness validity jitter (PublishInvalid refreshes freshness and
+        /// keeps the pose), and a puck disconnect stops the publishes so the
+        /// cache goes stale — the freshness window IS the connection gate.
+        /// The optical Valid flag no longer gates the IK; it only colors the
+        /// gizmo. Stale/never-seen sides return invalid, which the solver's
+        /// state machine turns into Held-then-Static (true loss).</summary>
         private static UpperBodyIkSolver.HandInput ReadTrackerHand(string side)
         {
             if (!TrackerFrameCache.TryGetFrame(side, out var frame) ||
                 !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()) ||
-                !frame.HasPose || !frame.Valid)
+                !frame.HasPose)
                 return default;
             if (!TrackerHandCalibration.TryMap(side, frame.Position, frame.Rotation, out var pos, out var rot))
                 return default;

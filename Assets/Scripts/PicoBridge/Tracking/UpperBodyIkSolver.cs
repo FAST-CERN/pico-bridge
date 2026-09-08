@@ -25,7 +25,9 @@ namespace PicoBridge.Tracking
     ///   component p̂ (fingers axis projected ⊥ the shoulder-wrist axis):
     ///   E = W − L2·(α·axis + β·p̂), β = √(1−α²) — both bone lengths stay
     ///   rigidly exact by construction; axial mismatch is absorbed by the
-    ///   wrist joint (wrist orientation outputs R_hand ∘ C_wrist directly).
+    ///   wrist joint (wrist orientation outputs R_hand ∘ PalmToAnatomical ∘
+    ///   C_wrist — the t20 half turn onto the anatomical frame C_wrist was
+    ///   ported against).
     /// - Unreachable targets clamp ONTO the reach sphere (straight-arm
     ///   semantics, rigid bones); no joint-limit tables in v1.
     /// - A lost side freezes its last solved arm for HoldSeconds, then
@@ -112,6 +114,21 @@ namespace PicoBridge.Tracking
         public static readonly Quaternion RightWristConvention = Quaternion.Normalize(
             new Quaternion(-0.143f, -0.035f, 0.168f, 0.975f));
 
+        // ── t20: palm convention → anatomical forearm frame ──
+
+        /// <summary>Half turn about the extension axis mapping the palm
+        /// convention onto the anatomical forearm frame (t20, derived
+        /// axis-by-axis in ticket 20): in the reference configuration
+        /// (upper arm down, forearm forward, palm down) palm +X (fingers)
+        /// = anatomical x (elbow→wrist), palm +Y (green) = −anatomical y
+        /// (flexion normal), palm +Z (back of hand) = −anatomical z —
+        /// diag(1,−1,−1), a proper self-inverse rotation, side-independent
+        /// (chirality lives in the per-side C_wrist). C_wrist was ported
+        /// against the ANATOMICAL frame (Teleopit synth _arm_segment_quats:
+        /// Wrist = r_forearm ∘ C_wrist), so the wrist output is
+        /// palm ∘ PalmToAnatomical ∘ C_wrist.</summary>
+        public static readonly Quaternion PalmToAnatomical = Quaternion.AngleAxis(180f, Vector3.right);
+
         // ── static template: first standing frame of the 20260904_231338
         // recording (arms hanging naturally). Common-frame values in the
         // post-flip Unity convention, at ReferenceHeightM. ──
@@ -186,7 +203,7 @@ namespace PicoBridge.Tracking
         /// <summary>One side's hand input in a frame.</summary>
         public struct HandInput
         {
-            public bool Valid;
+            public bool Valid;         // side TRACKED (t19: fresh cache, pose seen) — optical Valid is a gizmo-only concern
             public Vector3 Position;   // wrist root (TryMap output)
             public Quaternion Rotation; // palm convention: +Z back, +X fingers, +Y right
         }
@@ -387,7 +404,7 @@ namespace PicoBridge.Tracking
             var shoulderConv = left ? LeftShoulderConvention : RightShoulderConvention;
             var elbowConv = left ? LeftElbowConvention : RightElbowConvention;
             var wristConv = left ? LeftWristConvention : RightWristConvention;
-            var wristQuat = hand.Rotation * wristConv; // ruling 6: hand orientation carries directly
+            var wristQuat = hand.Rotation * PalmToAnatomical * wristConv; // t20: palm∘K⁻¹∘C_wrist = anatomical∘C_wrist (ruling 6 + ticket 20)
 
             var handPos = wrist + HandSegmentM * fDir;
 

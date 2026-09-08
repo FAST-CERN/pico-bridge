@@ -17,8 +17,11 @@ namespace PicoBridge.Editor
     /// VERBATIM, the IK solves in Unity (head flipped once on the way in),
     /// the WIRE applies the standard AppendBody flip to every solved joint,
     /// and BodyFrameCache gets the solved Unity pose DIRECTLY for the SDK
-    /// avatar. Lost-side semantics ride the solver state machine (Held
-    /// freeze). Run headless like the T03 smoke; marker "[T09SMOKE] PASS".
+    /// avatar. Lost-side semantics (t19): tracking = fresh cache with a
+    /// pose ever seen — stillness validity jitter keeps the cached pose
+    /// (Live); only a stale cache (a disconnect stops the publishes) is a
+    /// true loss riding the solver's Held-then-Static machine. Run
+    /// headless like the T03 smoke; marker "[T09SMOKE] PASS".
     /// </summary>
     public static class PicoBridgeT09IkWireSmoke
     {
@@ -124,8 +127,8 @@ namespace PicoBridge.Editor
                 var wireLeftWristRot = new Quaternion(parsed[20].rot.x, parsed[20].rot.y, -parsed[20].rot.z, -parsed[20].rot.w);
                 Check((wireLeftWristPos - leftPuckPos).magnitude < 5e-3f,
                     "wire: left wrist (unflipped) = published puck position (zero trim, ≤5mm)");
-                Check(Quaternion.Angle(wireLeftWristRot, leftPuckRot * UpperBodyIkSolver.LeftWristConvention) < 1f,
-                    "wire: left wrist rotation (unflipped) = puck∘C_wrist (≤1°)");
+                Check(Quaternion.Angle(wireLeftWristRot, leftPuckRot * UpperBodyIkSolver.PalmToAnatomical * UpperBodyIkSolver.LeftWristConvention) < 1f,
+                    "wire: left wrist rotation (unflipped) = puck∘K⁻¹∘C_wrist (t20, ≤1°)");
 
                 // ── 5. never-seen right side = root-placed template arm ──
                 var templateWrist = new Vector3(refResult.Positions[UpperBodyIkSolver.RightWrist].x,
@@ -150,22 +153,40 @@ namespace PicoBridge.Editor
                 }
                 Check(cacheOk, "avatar: cached poses = IK Unity output directly (no flip)");
 
-                // ── 7. optical loss → Held freeze (wire stays verbatim) ──
-                var frozenLeftWrist = poses[20];
+                // ── 7. stillness validity jitter (t19): a fresh-but-invalid
+                //      frame is still TRACKING — the hand input keeps the
+                //      cached last pose. Discriminator: move the head; a
+                //      LIVE arm re-solves (elbow/shoulder follow, wrist
+                //      stays at the cached target), a Held arm would stay
+                //      frozen verbatim. ──
+                var cachedLeftWrist = poses[20];
                 TrackerFrameCache.PublishInvalid("left", 77, clockNow);
+                var movedHeadPos = nativeHeadPos + new Vector3(0.15f, 0f, 0f);
+                TrackerBodyHead.Source = (out Vector3 p, out Quaternion q, out long t) =>
+                {
+                    p = movedHeadPos;
+                    q = nativeHeadRot;
+                    t = headTs;
+                    return true;
+                };
                 sb.Clear();
                 InvokePrivate(collector, "AppendTrackerBody");
-                var posesHeld = PoseFields(sb.ToString());
-                Check(posesHeld[20] == frozenLeftWrist,
-                    "wire: lost side freezes its last solved arm (Held, verbatim)");
+                var posesStill = PoseFields(sb.ToString());
+                Check(posesStill[20] == cachedLeftWrist,
+                    "wire: stillness-invalid side keeps the cached hand target (wrist unchanged)");
+                var parsedStill = ParsePoses(posesStill);
+                Check((parsedStill[UpperBodyIkSolver.LeftElbow].pos - parsed[UpperBodyIkSolver.LeftElbow].pos).magnitude > 0.05f,
+                    "wire: stillness-invalid side stays LIVE - elbow re-solves with the moved head (Held would freeze it)");
 
-                // ── 8. stale cache (no publish for 0.6s) → still Held ──
+                // ── 8. stale cache (a disconnect stops the publishes; no
+                //      publish for 0.6s = true loss) → Held within the
+                //      window, verbatim freeze ──
                 TrackerFrameCache.Clock = () => clockNow + 0.6f;
                 sb.Clear();
                 InvokePrivate(collector, "AppendTrackerBody");
                 var posesStale = PoseFields(sb.ToString());
-                Check(posesStale[20] == frozenLeftWrist,
-                    "wire: stale side still Held within the 1s window");
+                Check(posesStale[20] == cachedLeftWrist,
+                    "wire: stale side (true loss) still Held within the 1s window");
             }
             finally
             {
