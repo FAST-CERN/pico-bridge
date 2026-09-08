@@ -228,6 +228,7 @@ namespace PicoBridge
                 _collector.HandTrackingEnabled = sendHands;
                 _collector.BodyTrackingEnabled = sendBody;
                 _collector.TrackerBodyEnabled = armStream == ArmStreamMode.TrackerBody;
+                _collector.OperatorHeightM = operatorHeight; // t09: IK bone model
                 _collector.MotionTrackerEnabled = sendMotion;
                 json = _collector.CollectJson();
                 #endif

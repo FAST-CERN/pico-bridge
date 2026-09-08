@@ -21,6 +21,11 @@ namespace PicoBridge.Tracking
         public bool MotionTrackerEnabled = false;
         public bool TrackerBodyEnabled = false;
 
+        /// <summary>Operator height for the tracker-mode IK bone model; the
+        /// manager syncs its serialized/remote-controlled value here each
+        /// frame (same route as the stream flags).</summary>
+        public float OperatorHeightM = 1.75f;
+
         private readonly StringBuilder _sb = new StringBuilder(4096);
 
         /// <summary>
@@ -289,17 +294,26 @@ namespace PicoBridge.Tracking
             _sb.Append('"');
         }
 
-        // ── Transitional tracker body frame (t03) ─────────
+        // ── Tracker-mode body frame (t03 channel, t09 content) ──
 
         // Same Body wire contract as AppendBody (poseSpace/alignment/24
-        // joints/len), but the content is the D3-minimal transitional frame:
-        // identity local poses everywhere except Head (index 15, receiver
-        // BODY_JOINT_NAMES order) = the RAW HMD world pose in AppendHead's
-        // own frame — deliberately NOT flipped, placeholder until t09 fills
-        // real IK content. va/wva zero. FK consumers see a collapsed
-        // skeleton with a world-pose-in-local-slot head by design; documented
-        // transitional cost.
-        private const int HeadJointIndex = 15;
+        // joints/len), but the content is the t08 IK: head/neck chain from
+        // the HMD source, arm chains from the trimmed tracker hands, lower
+        // body = static standing template whose root follows the head.
+        //
+        // Frame ruling (t09, from the 2026-09-09 recording finding): body
+        // joints are COMMON-frame poses, the wire carries the flipped
+        // Unity-convention values, and the IK solves in exactly that
+        // convention — so solved joints serialize VERBATIM (unlike
+        // AppendBody, which flips its native SDK inputs; the head source is
+        // native and gets flipped ONCE here on the way in). The avatar cache
+        // keeps its native semantics: every solved pose is flipped
+        // Unity→native before BodyFrameCache.SetJoint, so the SDK avatar
+        // renders in tracker mode exactly like body mode.
+        // BodyMountCorrection does not intervene (t03 ruling: the t17 trim
+        // already carries the mount geometry — no double correction).
+        private UpperBodyIkSolver _ikSolver;
+        private float _ikSolverHeight;
 
         private void AppendTrackerBody()
         {
@@ -307,31 +321,77 @@ namespace PicoBridge.Tracking
             var headRot = Quaternion.identity;
             long t = 0;
             var source = TrackerBodyHead.Source;
-            if (source == null || !source(out headPos, out headRot, out t))
+            if (source != null && source(out headPos, out headRot, out t))
+            {
+                // native → Unity: the same flip AppendBody applies at
+                // serialize — the IK solves in the frame the (already
+                // flipped) tracker hands live in.
+                headPos = new Vector3(headPos.x, headPos.y, -headPos.z);
+                headRot = new Quaternion(headRot.x, headRot.y, -headRot.z, -headRot.w);
+            }
+            else
             {
                 headPos = Vector3.zero;
                 headRot = Quaternion.identity;
                 t = 0;
             }
 
+            if (_ikSolver == null || !Mathf.Approximately(_ikSolverHeight, OperatorHeightM))
+            {
+                _ikSolver = new UpperBodyIkSolver(OperatorHeightM);
+                _ikSolverHeight = OperatorHeightM;
+            }
+
+            var result = _ikSolver.Solve(new UpperBodyIkSolver.FrameInput
+            {
+                HeadPosition = headPos,
+                HeadRotation = headRot,
+                Left = ReadTrackerHand("left"),
+                Right = ReadTrackerHand("right"),
+                NowSeconds = Time.realtimeSinceStartupAsDouble,
+            });
+
             _sb.Append(",\"Body\":{");
             _sb.Append("\"poseSpace\":\"pico_body_local\"");
             _sb.Append(",\"alignment\":\"pico_native\"");
             _sb.Append(",\"joints\":[");
+            var now = Time.realtimeSinceStartup;
             for (int i = 0; i < BodyJointCount; i++)
             {
                 if (i > 0) _sb.Append(',');
+                var pos = result.Positions[i];
+                var rot = result.Rotations[i];
                 _sb.Append("{\"p\":\"");
-                if (i == HeadJointIndex)
-                    AppendPose(headPos.x, headPos.y, headPos.z, headRot.x, headRot.y, headRot.z, headRot.w);
-                else
-                    AppendPose(0f, 0f, 0f, 0f, 0f, 0f, 1f);
+                AppendPose(pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w);
                 _sb.Append($"\",\"t\":{t}");
                 _sb.Append(",\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
                 _sb.Append(",\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
                 _sb.Append('}');
+
+                // Avatar feed: the cache's native convention = flip of the
+                // solved (Unity/wire) pose.
+                BodyFrameCache.SetJoint(
+                    i,
+                    new Vector3(pos.x, pos.y, -pos.z),
+                    new Quaternion(rot.x, rot.y, -rot.z, -rot.w),
+                    now);
             }
             _sb.Append($"],\"len\":{BodyJointCount}}}");
+        }
+
+        /// <summary>One side's IK hand input from the tracker cache: fresh
+        /// optically-valid side → TryMap (t17 trim) pose; anything else
+        /// (stale, absent, invalid) → invalid, which the solver's state
+        /// machine turns into Held-then-Static.</summary>
+        private static UpperBodyIkSolver.HandInput ReadTrackerHand(string side)
+        {
+            if (!TrackerFrameCache.TryGetFrame(side, out var frame) ||
+                !TrackerFrameCache.IsFresh(frame, TrackerFrameCache.Clock()) ||
+                !frame.HasPose || !frame.Valid)
+                return default;
+            if (!TrackerHandCalibration.TryMap(side, frame.Position, frame.Rotation, out var pos, out var rot))
+                return default;
+            return new UpperBodyIkSolver.HandInput { Valid = true, Position = pos, Rotation = rot };
         }
 
         // ── Motion Trackers ───────────────────────────────

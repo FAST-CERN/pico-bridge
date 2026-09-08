@@ -7,16 +7,18 @@ using PicoBridge.Tracking;
 namespace PicoBridge.Editor
 {
     /// <summary>
-    /// Off-device smoke for the tracker-mode body channel (tracker-ik map t03):
-    /// third ArmStreamMode state, BridgeControl set_trackers entry, mutex
-    /// round-trips, and the transitional 24-joint wire frame. Run headless:
+    /// Off-device smoke for the tracker-mode body channel (tracker-ik map t03
+    /// channel, t09 content): third ArmStreamMode state, BridgeControl
+    /// set_trackers entry, mutex round-trips, and the 24-joint IK wire frame
+    /// (content assertions live in the T09 smoke; this one pins the block
+    /// contract and the head-slot flip ruling). Run headless:
     ///
     ///   Unity.exe -batchmode -nographics -projectPath &lt;repo&gt; \
     ///     -executeMethod PicoBridge.Editor.PicoBridgeT03TrackerBodySmoke.Run -quit \
     ///     -logFile &lt;log&gt;
     ///
     /// Success marker: "[T03SMOKE] PASS". Expected values are hand-written
-    /// golden literals (wire contract / no-flip head convention), never
+    /// golden literals (wire contract / flipped head convention), never
     /// recomputed.
     /// </summary>
     public static class PicoBridgeT03TrackerBodySmoke
@@ -32,25 +34,6 @@ namespace PicoBridge.Editor
                 checks++;
                 Debug.Log("[T03SMOKE] ok: " + label);
             }
-
-            // Hand-written goldens (receiver 0.2.x Body block contract). The
-            // head pose is chosen with positive z/qz/qw so a false flip
-            // (-Z, -Qz, -Qw — the AppendBody convention) cannot pass.
-            const string IdentityJoint =
-                "{\"p\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000\",\"t\":1234567," +
-                "\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"," +
-                "\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"}";
-            const string HeadJoint =
-                "{\"p\":\"0.500000,-0.250000,1.000000,0.100000,0.200000,0.300000,0.900000\",\"t\":1234567," +
-                "\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"," +
-                "\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"}";
-            string FallbackFrame =
-                ",\"Body\":{\"poseSpace\":\"pico_body_local\",\"alignment\":\"pico_native\",\"joints\":[" +
-                string.Join(",", Enumerable.Repeat(
-                    "{\"p\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000\",\"t\":0," +
-                    "\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"," +
-                    "\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"}", 24)) +
-                "],\"len\":24}";
 
             var managerObject = new GameObject("T03SmokeManager");
             try
@@ -123,7 +106,7 @@ namespace PicoBridge.Editor
                       manager.sendBody && !manager.sendMotion,
                     "RequestTrackerBodyMode enters TrackerBody");
 
-                // ── 7. transitional wire frame golden literal ──
+                // ── 7. tracker-mode wire frame (t09 content: real IK) ──
                 var collector = new PicoTrackingCollector();
                 Check(!collector.TrackerBodyEnabled, "collector: TrackerBodyEnabled default false");
                 var sb = (System.Text.StringBuilder)GetPrivate(collector, "_sb");
@@ -137,19 +120,31 @@ namespace PicoBridge.Editor
                 };
                 sb.Clear();
                 InvokePrivate(collector, "AppendTrackerBody");
-                var expected =
-                    ",\"Body\":{\"poseSpace\":\"pico_body_local\",\"alignment\":\"pico_native\",\"joints\":[" +
-                    string.Join(",", Enumerable.Repeat(IdentityJoint, 15)) + "," + HeadJoint + "," +
-                    string.Join(",", Enumerable.Repeat(IdentityJoint, 8)) + "],\"len\":24}";
-                Check(sb.ToString() == expected,
-                    "wire: transitional body frame golden (15 identity + raw HMD head at idx 15 + 8 identity, len 24)");
+                var json = sb.ToString();
+                Check(json.StartsWith(",\"Body\":{\"poseSpace\":\"pico_body_local\",\"alignment\":\"pico_native\",\"joints\":[") &&
+                      json.EndsWith("],\"len\":24}"),
+                    "wire: body block contract (poseSpace/alignment/24 joints/len)");
+                var poses = PoseFields(json);
+                Check(poses.Length == 24, "wire: 24 joint poses");
+                // t09 ruling: the head source is NATIVE; the wire carries
+                // the flipped Unity convention — this golden (negated
+                // z/qz/qw) cannot pass a raw passthrough.
+                Check(poses[15] == "0.500000,-0.250000,-1.000000,0.100000,0.200000,-0.300000,-0.900000",
+                    "wire: head slot = flipped HMD pose (t09 uniform-convention ruling)");
+                Check(poses[0] != "0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000",
+                    "wire: body content is IK (pelvis = standing template, not identity)");
+                Check(json.Contains("\"t\":1234567"), "wire: head timestamp propagates");
 
-                // Head unavailable (no source): full identity frame, t=0, still len 24.
+                // Head unavailable (no source): identity head slot, t=0, still len 24.
                 TrackerBodyHead.Source = null;
                 sb.Clear();
                 InvokePrivate(collector, "AppendTrackerBody");
-                Check(sb.ToString() == FallbackFrame,
-                    "wire: head source absent falls back to full identity frame (len 24, t 0)");
+                json = sb.ToString();
+                poses = PoseFields(json);
+                Check(poses.Length == 24 && poses[15] == "0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000",
+                    "wire: head source absent → identity head slot (len 24)");
+                Check(!json.Contains("\"t\":1234567") && json.Contains("\"t\":0"),
+                    "wire: head source absent → t=0");
             }
             finally
             {
@@ -158,6 +153,16 @@ namespace PicoBridge.Editor
             }
 
             Debug.Log($"[T03SMOKE] PASS ({checks} checks)");
+        }
+
+        /// <summary>All 24 joint "p" pose strings, in role order.</summary>
+        private static string[] PoseFields(string bodyJson)
+        {
+            var matches = System.Text.RegularExpressions.Regex.Matches(bodyJson, "\"p\":\"([^\"]*)\"");
+            var fields = new string[matches.Count];
+            for (int i = 0; i < matches.Count; i++)
+                fields[i] = matches[i].Groups[1].Value;
+            return fields;
         }
 
         private static void InvokePrivate(object target, string method, params object[] args)
