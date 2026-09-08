@@ -690,7 +690,7 @@ namespace PicoBridge
         // tracker cache (calibration targets compose with this, t05 Q1).
         private static bool ReadHeadUnityPose(out Vector3 position, out Quaternion rotation)
         {
-            var cam = Camera.main;
+            var cam = UnityEngine.Camera.main;
             if (cam == null)
             {
                 position = default;
