@@ -19,6 +19,7 @@ namespace PicoBridge.UI
         private bool _cameraSignalVisible;
         private ArmSourcePanelRow _armSourceRow;
         private MountCalibPanelRow _mountCalibRow;
+        private TrackerCalibPanelRow _trackerCalibRow;
         private bool _hasExpandedRect;
         private Vector2 _expandedAnchorMin;
         private Vector2 _expandedAnchorMax;
@@ -67,6 +68,7 @@ namespace PicoBridge.UI
             ConfigureResolutionControl();
             ConfigureArmSourceControl();
             ConfigureMountCalibControls();
+            ConfigureTrackerCalibControl();
         }
 
         private void Start()
@@ -196,6 +198,17 @@ namespace PicoBridge.UI
             // t04 ②: the mount-calib knobs are body-mode strap tuning only —
             // hide them in every other mode (incl. TrackerBody).
             _mountCalibRow?.SetVisible(manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
+
+            // t06: the CALIB entry is the tracker-mode mirror of that gate,
+            // and the row renders the guided flow's guidance + countdowns.
+            bool trackerMode = manager.ArmStream == PicoBridgeManager.ArmStreamMode.TrackerBody;
+            _trackerCalibRow?.SetVisible(trackerMode);
+            bool guideRunning = Tracking.TrackerCalibrationGuide.CurrentPhase !=
+                Tracking.TrackerCalibrationGuide.Phase.Inactive;
+            _trackerCalibRow?.Refresh(
+                guideRunning,
+                Tracking.TrackerCalibrationGuide.StatusText(),
+                Tracking.TrackerCalibrationGuide.IsUrgent);
         }
 
         // Mount-calibration steppers (bodytrack-deploy t08): per-side yaw/level
@@ -213,6 +226,31 @@ namespace PicoBridge.UI
             // other mode; RefreshArmSourceControl keeps it in sync.
             _mountCalibRow?.SetVisible(manager != null &&
                 manager.ArmStream == PicoBridgeManager.ArmStreamMode.Body);
+        }
+
+        // In-app guided calibration entry (tracker-ik t06): CALIB starts the
+        // guided three-pose flow, ABORT (same button, running) cancels it.
+        // The guide itself is session-local — no receiver connection needed;
+        // the panel status label IS the operator's metronome (2026-09-08
+        // device verdict: PC audio beats mistimed every pose).
+        private void ConfigureTrackerCalibControl()
+        {
+            if (_armSourceRow == null || _armSourceRow.RowRect == null)
+                return;
+
+            _trackerCalibRow = TrackerCalibPanelRow.Build(_armSourceRow.RowRect, ToggleTrackerCalib);
+            _trackerCalibRow?.SetVisible(manager != null &&
+                manager.ArmStream == PicoBridgeManager.ArmStreamMode.TrackerBody);
+        }
+
+        private void ToggleTrackerCalib()
+        {
+            if (Tracking.TrackerCalibrationGuide.CurrentPhase ==
+                Tracking.TrackerCalibrationGuide.Phase.Inactive)
+                Tracking.TrackerCalibrationGuide.Start();
+            else
+                Tracking.TrackerCalibrationGuide.Abort();
+            RefreshArmSourceControl();
         }
 
         private void AdjustMountCorrection(string side, bool isYaw, float delta)

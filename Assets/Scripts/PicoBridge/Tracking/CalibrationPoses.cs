@@ -23,6 +23,7 @@ namespace PicoBridge.Tracking
         private struct PoseDef
         {
             public string Name;
+            public string Instruction;
             public Vector3 LeftPosition;
             public Vector3 LeftEulerDegrees;
             public Vector3 RightEulerDegrees;
@@ -34,6 +35,7 @@ namespace PicoBridge.Tracking
             new PoseDef
             {
                 Name = "chest",
+                Instruction = "hands at chest, palms toward body",
                 LeftPosition = new Vector3(0.22f, -0.35f, 0.42f),
                 LeftEulerDegrees = new Vector3(0f, 90f, 0f),
                 RightEulerDegrees = new Vector3(0f, -90f, 0f),
@@ -42,6 +44,7 @@ namespace PicoBridge.Tracking
             new PoseDef
             {
                 Name = "side",
+                Instruction = "arms straight out, palms down",
                 LeftPosition = new Vector3(0.75f, -0.05f, 0.15f),
                 LeftEulerDegrees = new Vector3(0f, 0f, 0f),
                 RightEulerDegrees = new Vector3(0f, 180f, 0f),
@@ -50,6 +53,7 @@ namespace PicoBridge.Tracking
             new PoseDef
             {
                 Name = "front",
+                Instruction = "arms straight ahead, palms face each other",
                 LeftPosition = new Vector3(0.18f, 0.10f, 0.62f),
                 LeftEulerDegrees = new Vector3(0f, 0f, 90f),
                 RightEulerDegrees = new Vector3(0f, 0f, -90f),
@@ -61,6 +65,11 @@ namespace PicoBridge.Tracking
         /// <summary>Guidance copy for pose i (t06 panel/render).</summary>
         public static string Name(int index) =>
             index >= 0 && index < Poses.Length ? Poses[index].Name : "";
+
+        /// <summary>ASCII operator instruction for pose i (t06 panel copy;
+        /// the panel font has no CJK glyphs).</summary>
+        public static string Instruction(int index) =>
+            index >= 0 && index < Poses.Length ? Poses[index].Instruction : "";
 
         /// <summary>Head-local target pose for pose i on one side
         /// ("left"/"right"); unknown indices or sides yield identity.</summary>

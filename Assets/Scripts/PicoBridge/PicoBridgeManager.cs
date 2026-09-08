@@ -200,6 +200,11 @@ namespace PicoBridge
             SuppressEditorOnlyControllerRenderers();
 #endif
 
+            // In-app guided calibration pacing (tracker-ik t06): always-on
+            // driver so the countdown keeps running even while the panel
+            // itself is hidden; the guide aborts itself on immersive entry.
+            Tracking.TrackerCalibrationGuide.Tick(Time.deltaTime);
+
             // Rate-limited tracking send
             _trackingTimer += Time.deltaTime;
             if (_trackingTimer >= _trackingInterval && IsConnected)
