@@ -240,7 +240,7 @@ namespace PicoBridge.Editor
             TrackerCalibrationSession.Capture();
             PublishPose(1, 0f, 0f);
             TrackerCalibrationSession.Capture();
-            PublishPose(2, 0.25f, 0f); // 25cm on the last pose -> rms 0.144m over the 0.10 gate
+            PublishPose(2, 0.60f, 0f); // 60cm on the last pose - big enough that the 3-pt Horn tilt cannot absorb it under the 0.10 gate
             Check(TrackerCalibrationSession.Capture(),
                 "session: over-gate capture still fills the third slot (gate fires at solve)");
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Rejected &&
@@ -255,7 +255,7 @@ namespace PicoBridge.Editor
             TrackerCalibrationSession.Capture();
             PublishPose(1, 0f, 0f);
             TrackerCalibrationSession.Capture();
-            PublishPose(2, 0f, 40f); // 40° on the last pose -> rms 23° over the 15° gate
+            PublishPose(2, 0f, 110f); // 110° on the last pose -> rms 63° over the 60° reflection gate
             TrackerCalibrationSession.Capture();
             Check(TrackerCalibrationSession.CurrentState == TrackerCalibrationSession.State.Rejected,
                 "session: rotation gate rejects (orientation residual is the reflection catch)");

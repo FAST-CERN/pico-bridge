@@ -23,13 +23,17 @@ namespace PicoBridge.Tracking
         /// cache); device default reads the XR head camera.</summary>
         public delegate bool HeadPoseDelegate(out Vector3 position, out Quaternion rotation);
 
-        // Residual gates (t05 Q2; device rounds tune). 2026-09-08 round two:
-        // in-app guidance brought pose-adherence residual from 0.325 m to
-        // 0.071 m on untuned literals — gates move to first-gen sanity
-        // levels (still catch mirrored/garbage data, which explodes past
-        // 0.3 m / 40°).
+        // Residual gates (t05 Q2; device rounds tune). 2026-09-08 rounds:
+        // position 0.325 -> 0.071 m with in-app guidance, gate to 0.10
+        // (mirrored/garbage explodes past 0.3 m). Rotation gate is a
+        // REFLECTION catch only: the pucks mount on the thumb-base lateral
+        // faces with uncontrolled rotation, and a rigid R absorbs any mount
+        // angle — the rot residual measures the POSE-ORIENTATION literals
+        // vs the operator's natural hand orientations (first-pass
+        // conventions), which can't gate tighter than tens of degrees.
+        // Mirrored data still explodes past ~100 deg.
         public const float PositionGateMeters = 0.10f;
-        public const float RotationGateDegrees = 15f;
+        public const float RotationGateDegrees = 60f;
 
         private struct Sample
         {
