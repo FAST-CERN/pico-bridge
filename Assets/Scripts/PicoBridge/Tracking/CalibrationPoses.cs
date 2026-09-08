@@ -40,12 +40,17 @@ namespace PicoBridge.Tracking
                 LeftEulerDegrees = new Vector3(0f, 90f, 0f),
                 RightEulerDegrees = new Vector3(0f, -90f, 0f),
             },
-            // Arm out to the side, palm down.
+            // Arm out diagonally (45 deg between forward and side), palm
+            // down. The 2026-09-08 round lost both trackers in the full
+            // T-pose — extended-lateral hands leave the headset camera FOV
+            // (same failure as the mocap-map t06); the diagonal keeps the
+            // lateral spread the Kabsch triangle needs while staying in
+            // view. Values are device-round tunable like the rest.
             new PoseDef
             {
                 Name = "side",
-                Instruction = "arms straight out, palms down",
-                LeftPosition = new Vector3(0.75f, -0.05f, 0.15f),
+                Instruction = "arms out diagonally, palms down",
+                LeftPosition = new Vector3(0.45f, -0.15f, 0.45f),
                 LeftEulerDegrees = new Vector3(0f, 0f, 0f),
                 RightEulerDegrees = new Vector3(0f, 180f, 0f),
             },

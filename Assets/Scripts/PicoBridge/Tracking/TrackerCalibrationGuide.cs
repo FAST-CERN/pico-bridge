@@ -24,8 +24,8 @@ namespace PicoBridge.Tracking
     {
         public enum Phase { Inactive, Prep, Hold, Recapture, Verdict }
 
-        public const float PrepSeconds = 5f;
-        public const float HoldSeconds = 15f;
+        public const float PrepSeconds = 10f;
+        public const float HoldSeconds = 5f;
         public const float RecaptureSeconds = 3f;
         public const float VerdictSeconds = 6f;
         public const int MaxRecaptureAttempts = 5;
