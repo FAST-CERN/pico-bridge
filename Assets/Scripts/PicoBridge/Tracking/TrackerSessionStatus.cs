@@ -58,17 +58,22 @@ namespace PicoBridge.Tracking
             return report;
         }
 
-        /// <summary>Compact panel suffix for the SN row; empty when all sides are valid.</summary>
+        /// <summary>
+        /// Compact ASCII panel suffix for the SN row; empty when any side is
+        /// valid. ASCII only — the panel's Liberation SDF font has no CJK
+        /// glyphs (device round 2026-09-08 rendered zh as tofu boxes).
+        /// Vocabulary matches DescribeSides: "!" = trouble, "?" = optical.
+        /// </summary>
         public static string PanelSuffix()
         {
             var report = Evaluate();
             if (report.AnyValid)
                 return "";
             if (report.Left.State == TrackerSideState.Unbound || report.Right.State == TrackerSideState.Unbound)
-                return " ⚠未绑定";
+                return " !bind";
             if (report.Left.State == TrackerSideState.Disconnected || report.Right.State == TrackerSideState.Disconnected)
-                return " ⚠断连";
-            return " ⚠丢追";
+                return " !conn";
+            return " !view";
         }
 
         /// <summary>Human prompt for one side's state (zh, operator-facing).</summary>

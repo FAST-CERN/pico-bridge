@@ -139,8 +139,8 @@ namespace PicoBridge.Editor
             Check(TrackerSessionStatus.PanelSuffix().Length == 0, "status: panel suffix empty when any side valid");
 
             TrackerFrameCache.Clock = () => 105f; // everything stale now
-            Check(TrackerSessionStatus.PanelSuffix().Contains("⚠"),
-                "status: panel suffix flags when no side valid");
+            Check(TrackerSessionStatus.PanelSuffix() == " !conn",
+                "status: panel suffix flags trouble as ASCII !conn (font has no CJK)");
             Check(TrackerSessionStatus.PromptText(TrackerSideState.Unbound).Length > 0 &&
                   TrackerSessionStatus.PromptText(TrackerSideState.OpticalLost).Length > 0,
                 "status: per-state prompt text present");
@@ -176,7 +176,7 @@ namespace PicoBridge.Editor
                 TrackerFrameCache.ResetForTest();
                 TrackerFrameCache.Clock = () => 100f;
                 InvokePrivate(controller, "RefreshArmSourceControl");
-                Check(snText.text.Contains("⚠"), "panel: SN row flags when no side valid (suffix)");
+                Check(snText.text.Contains("!conn"), "panel: SN row flags when no side valid (suffix)");
 
                 TrackerFrameCache.PublishValid("left", 7, FlippedPos, FlippedRot, 100f);
                 InvokePrivate(controller, "RefreshArmSourceControl");
