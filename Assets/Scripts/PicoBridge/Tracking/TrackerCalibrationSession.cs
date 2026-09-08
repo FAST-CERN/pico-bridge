@@ -148,6 +148,12 @@ namespace PicoBridge.Tracking
                 TrackerHandCalibration.Commit("right", rightParams);
                 _state = State.Committed;
                 _rejectReason = "";
+                // Round observability: residuals are the gate-tuning signal
+                // (t05 device round) — logcat is the only channel while the
+                // store has no reader yet.
+                Debug.Log($"[PicoBridge] Hand calibration committed: " +
+                          $"L pos {leftParams.positionRms * 1000f:0.0}mm rot {leftParams.rotationRmsDeg:0.0}° | " +
+                          $"R pos {rightParams.positionRms * 1000f:0.0}mm rot {rightParams.rotationRmsDeg:0.0}°");
                 return;
             }
 
