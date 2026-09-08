@@ -21,8 +21,10 @@ namespace PicoBridge.Tracking
         [Serializable]
         public class SideParams
         {
-            public float qx, qy, qz, qw; // R
-            public float tx, ty, tz;     // t
+            // LOCAL mount (hand-eye) model, 2026-09-09: hand_rot = puck_rot*C
+            // (right-multiplied), hand_pos = puck_pos + puck_rot*m.
+            public float qx, qy, qz, qw; // C
+            public float tx, ty, tz;     // m, metres in the puck frame
             public float positionRms;    // solve quality at commit time
             public float rotationRmsDeg;
             public string poseSet;       // guided set id; null = never calibrated
@@ -81,8 +83,14 @@ namespace PicoBridge.Tracking
             }
         }
 
-        /// <summary>Map a puck pose onto the calibrated hand pose. False when
-        /// this side has no calibration (consumers fall back).</summary>
+        /// <summary>Map a puck pose onto the calibrated hand pose with the
+        /// LOCAL mount model (hand = puck compose M^-1):
+        /// hand_rot = puck_rot * C (stored quat, right-multiplied) and
+        /// hand_pos = puck_pos + puck_rot * m (stored translation, rotates
+        /// with the puck). False when this side has no calibration
+        /// (consumers fall back). The first (Kabsch) formulation stored a
+        /// GLOBAL R*p+t, which cannot follow a mounted puck — see
+        /// TrackerCalibrationSession.SolveSideLocked.</summary>
         public static bool TryMap(string side, Vector3 puckPos, Quaternion puckRot, out Vector3 pos, out Quaternion rot)
         {
             pos = default;
@@ -92,9 +100,9 @@ namespace PicoBridge.Tracking
                 var entry = Side(side);
                 if (entry == null || entry.poseSet == null)
                     return false;
-                var r = new Quaternion(entry.qx, entry.qy, entry.qz, entry.qw);
-                pos = r * puckPos + new Vector3(entry.tx, entry.ty, entry.tz);
-                rot = r * puckRot;
+                var c = new Quaternion(entry.qx, entry.qy, entry.qz, entry.qw);
+                pos = puckPos + puckRot * new Vector3(entry.tx, entry.ty, entry.tz);
+                rot = puckRot * c;
                 return true;
             }
         }

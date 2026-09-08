@@ -16,7 +16,9 @@ namespace PicoBridge.Editor
     public static class PicoBridgeT02VizSmoke
     {
         private static readonly Vector3 Pose = new Vector3(0.5f, -0.25f, -1.0f);
-        private static readonly Quaternion Rot = new Quaternion(0.1f, 0.2f, -0.3f, -0.9f);
+        // Normalized: device quats arrive normalized, and the t07 mapping
+        // multiplies vectors by this rotation (Unity does not renormalize).
+        private static readonly Quaternion Rot = new Quaternion(0.1f, 0.2f, -0.3f, -0.9f).normalized;
 
         public static void Run()
         {
@@ -88,24 +90,27 @@ namespace PicoBridge.Editor
                 Check(!handRootGo.activeSelf && Nearly(cubeMat.color.r, 1.0f),
                     "t07: uncalibrated side keeps full-color puck, hand gizmo hidden");
 
-                // Identity-R + known-t calibration: hand gizmo at pose+t with
-                // the same rotation; the raw puck dims.
+                // Identity-C + known-m calibration (LOCAL mount model): hand
+                // gizmo at puckPos + puckRot * m, rotation = puckRot * C; the
+                // raw puck dims.
+                var mapOffset = new Vector3(0.1f, 0.05f, -0.2f);
                 var map = new TrackerHandCalibration.SideParams
                 {
                     qx = 0f, qy = 0f, qz = 0f, qw = 1f,
-                    tx = 0.1f, ty = 0.05f, tz = -0.2f,
+                    tx = mapOffset.x, ty = mapOffset.y, tz = mapOffset.z,
                     positionRms = 0.01f, rotationRmsDeg = 2f,
                     poseSet = "chest/side/front",
                 };
                 TrackerHandCalibration.Commit("left", map);
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);
                 var rotN = Rot.normalized; // Unity normalizes on assignment
+                var expected = Pose + rotN * mapOffset; // m rides the puck rotation
                 Check(handRootGo.activeSelf &&
-                      Nearly(handRootGo.transform.position.x, Pose.x + 0.1f) &&
-                      Nearly(handRootGo.transform.position.y, Pose.y + 0.05f) &&
-                      Nearly(handRootGo.transform.position.z, Pose.z - 0.2f) &&
+                      Nearly(handRootGo.transform.position.x, expected.x) &&
+                      Nearly(handRootGo.transform.position.y, expected.y) &&
+                      Nearly(handRootGo.transform.position.z, expected.z) &&
                       Nearly(handRootGo.transform.rotation.x, rotN.x) && Nearly(handRootGo.transform.rotation.w, rotN.w),
-                    "t07: calibrated side renders hand gizmo at puck pose + t (identity R)");
+                    "t07: hand gizmo renders at puck + puckRot*m (local mount model)");
                 Check(leftRootGo.activeSelf && cubeMat.color.r < 0.6f && cubeMat.color.r > 0.3f,
                     "t07: raw puck gizmo dims under an active calibration");
                 Check(handCubeMat.color.r > 0.9f, "t07: hand gizmo carries the bright side color");
@@ -114,7 +119,7 @@ namespace PicoBridge.Editor
                 // last mapped pose.
                 TrackerFrameCache.PublishInvalid("left", 7, 200.2f);
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);
-                Check(handRootGo.activeSelf && Nearly(handRootGo.transform.position.x, Pose.x + 0.1f) &&
+                Check(handRootGo.activeSelf && Nearly(handRootGo.transform.position.x, expected.x) &&
                       Nearly(handCubeMat.color.r, 0.4f),
                     "t07: lost side ghosts the hand gizmo at the last mapped pose");
             }

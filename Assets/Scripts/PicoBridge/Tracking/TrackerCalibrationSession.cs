@@ -178,30 +178,72 @@ namespace PicoBridge.Tracking
             solved = null;
             reason = "";
 
-            var from = new Vector3[samples.Length];
-            var to = new Vector3[samples.Length];
+            // Hand-eye structure (2026-09-09 t07 eyeball round): the puck is
+            // rigidly MOUNTED on the hand, so puck = hand compose M with a
+            // constant LOCAL mount M — the runtime map is
+            //   hand_rot = puck_rot * C      (C constant, right-multiplied)
+            //   hand_pos = puck_pos + puck_rot * m   (offset rotates with the puck)
+            // A GLOBAL R*p+t (what the first Kabsch formulation solved) is
+            // structurally wrong for a mount: rotate the hand in place and
+            // the puck position swings around, which no global rigid
+            // transform can follow — the mapped gizmo floated away with no
+            // fixed relation to the tracker (device verdict).
+            //
+            // Estimate: C = chordal mean of the per-sample relative
+            // rotations puck_rot^-1 * target_rot; m = least squares on
+            // (target - puck) - R(puck_rot) m.
+            var cSum = new Quaternion(0f, 0f, 0f, 0f);
+            bool haveFirst = false;
+            Quaternion first = Quaternion.identity;
             for (int i = 0; i < samples.Length; i++)
             {
-                from[i] = samples[i].PuckPos;
-                to[i] = samples[i].TargetPos;
+                var rel = Quaternion.Inverse(samples[i].PuckRot) * samples[i].TargetRot;
+                if (!haveFirst)
+                {
+                    first = rel;
+                    haveFirst = true;
+                }
+                if (Quaternion.Dot(first, rel) < 0f) // sign-align the double cover
+                {
+                    rel = new Quaternion(-rel.x, -rel.y, -rel.z, -rel.w);
+                }
+                cSum = new Quaternion(cSum.x + rel.x, cSum.y + rel.y, cSum.z + rel.z, cSum.w + rel.w);
             }
+            var c = Quaternion.Normalize(cSum);
 
-            if (!KabschSolver.Solve(from, to, out var rot, out var translation, out var posRms))
+            // m: 3x3 normal equations sum( A^T A ) m = sum( A^T d ), with A's
+            // columns = the puck rotation applied to the basis vectors.
+            float[,] ata = new float[3, 3];
+            float[] atd = new float[3];
+            for (int i = 0; i < samples.Length; i++)
             {
-                reason = side + ": degenerate point spread";
+                var puckRot = samples[i].PuckRot;
+                var cols = new[] { puckRot * Vector3.right, puckRot * Vector3.up, puckRot * Vector3.forward };
+                var d = samples[i].TargetPos - samples[i].PuckPos;
+                for (int r = 0; r < 3; r++)
+                {
+                    atd[r] += Vector3.Dot(cols[r], d);
+                    for (int cc = 0; cc < 3; cc++)
+                        ata[r, cc] += Vector3.Dot(cols[r], cols[cc]);
+                }
+            }
+            var m = Solve3x3(ata, atd);
+            if (!m.HasValue)
+            {
+                reason = side + ": degenerate rotation spread (poses too similar)";
                 return false;
             }
 
-            // Orientation residual under the SAME R: the puck is rigidly
-            // strapped, so hand_rot = R * puck_rot must match the target.
-            // This is also where reflection-flavoured data explodes — point
-            // positions alone cannot see chirality (triangle congruence).
-            float rotSumSq = 0f;
+            // Residuals under the LOCAL model.
+            float posSumSq = 0f, rotSumSq = 0f;
             for (int i = 0; i < samples.Length; i++)
             {
-                float angle = Quaternion.Angle(rot * samples[i].PuckRot, samples[i].TargetRot);
+                var mapped = samples[i].PuckPos + samples[i].PuckRot * m.Value;
+                posSumSq += (mapped - samples[i].TargetPos).sqrMagnitude;
+                float angle = Quaternion.Angle(samples[i].PuckRot * c, samples[i].TargetRot);
                 rotSumSq += angle * angle;
             }
+            float posRms = Mathf.Sqrt(posSumSq / samples.Length);
             float rotRms = Mathf.Sqrt(rotSumSq / samples.Length);
 
             if (posRms > PositionGateMeters)
@@ -217,8 +259,8 @@ namespace PicoBridge.Tracking
 
             solved = new TrackerHandCalibration.SideParams
             {
-                qx = rot.x, qy = rot.y, qz = rot.z, qw = rot.w,
-                tx = translation.x, ty = translation.y, tz = translation.z,
+                qx = c.x, qy = c.y, qz = c.z, qw = c.w,
+                tx = m.Value.x, ty = m.Value.y, tz = m.Value.z,
                 positionRms = posRms,
                 rotationRmsDeg = rotRms,
                 poseSet = "chest/side/front",
@@ -231,6 +273,33 @@ namespace PicoBridge.Tracking
             _nextPose = 0;
             _left = new Sample[CalibrationPoses.Count];
             _right = new Sample[CalibrationPoses.Count];
+        }
+
+        /// <summary>Solve a 3x3 system by Cramer; null when singular (the
+        /// puck rotations did not spread across the poses).</summary>
+        private static Vector3? Solve3x3(float[,] a, float[] b)
+        {
+            float det =
+                a[0, 0] * (a[1, 1] * a[2, 2] - a[1, 2] * a[2, 1]) -
+                a[0, 1] * (a[1, 0] * a[2, 2] - a[1, 2] * a[2, 0]) +
+                a[0, 2] * (a[1, 0] * a[2, 1] - a[1, 1] * a[2, 0]);
+            if (Mathf.Abs(det) < 1e-6f)
+                return null;
+
+            float Det(float[,] m) =>
+                m[0, 0] * (m[1, 1] * m[2, 2] - m[1, 2] * m[2, 1]) -
+                m[0, 1] * (m[1, 0] * m[2, 2] - m[1, 2] * m[2, 0]) +
+                m[0, 2] * (m[1, 0] * m[2, 1] - m[1, 1] * m[2, 0]);
+
+            float[] x = new float[3];
+            for (int col = 0; col < 3; col++)
+            {
+                var modified = (float[,])a.Clone();
+                for (int row = 0; row < 3; row++)
+                    modified[row, col] = b[row];
+                x[col] = Det(modified) / det;
+            }
+            return new Vector3(x[0], x[1], x[2]);
         }
     }
 }

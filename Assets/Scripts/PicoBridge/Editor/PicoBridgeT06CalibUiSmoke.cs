@@ -72,8 +72,10 @@ namespace PicoBridge.Editor
                     string side = sideIdx == 0 ? "left" : "right";
                     CalibrationPoses.GetLocalPose(poseIndex, side, out var localPos, out var localRot);
                     var targetPos = headPos + headRot * localPos;
-                    var puckPos = invKnown * (targetPos - knownTranslation);
-                    var puckRot = invKnown * (headRot * localRot);
+                    var targetRot = headRot * localRot;
+                    // Physical mount: puck = hand compose M (t07 round fix).
+                    var puckRot = targetRot * knownRot;
+                    var puckPos = targetPos + targetRot * knownTranslation;
                     TrackerFrameCache.PublishValid(
                         side, sideIdx == 0 ? 7 : 8, puckPos, puckRot, TrackerFrameCache.Clock());
                 }
