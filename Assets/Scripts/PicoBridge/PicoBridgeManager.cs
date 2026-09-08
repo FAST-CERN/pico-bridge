@@ -83,9 +83,12 @@ namespace PicoBridge
             // Mount-correction config must load on the main thread
             // (persistentDataPath) before any BridgeControl or collector
             // touch can race it from the TCP receive thread. Same for the
-            // tracker-hand calibration store (t05).
+            // tracker-hand calibration store (t05) and its sample log
+            // (t14: logcat observability is dead on device, the JSONL
+            // file is the round's only surviving record).
             Tracking.BodyMountCorrection.EnsureLoaded();
             Tracking.TrackerHandCalibration.EnsureLoaded();
+            Tracking.TrackerCalibrationSampleLog.EnsureLoaded();
 
             _tcp = gameObject.AddComponent<PicoTcpClient>();
             _tcp.serverAddress = serverAddress;

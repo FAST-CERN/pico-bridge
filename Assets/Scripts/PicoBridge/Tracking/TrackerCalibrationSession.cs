@@ -42,11 +42,14 @@ namespace PicoBridge.Tracking
             public Vector3 PuckPos;
             public Quaternion TargetRot;
             public Quaternion PuckRot;
+            public Vector3 HeadPos;     // raw head source at capture (t14
+            public Quaternion HeadRot; // replay: target = head ∘ literal)
         }
 
         private static readonly object _lock = new object();
         private static State _state = State.Idle;
         private static int _nextPose;
+        private static int _sessionId;      // t14: groups one Begin->solve round in the sample log
         private static string _rejectReason = "";
         private static Sample[] _left = new Sample[CalibrationPoses.Count];
         private static Sample[] _right = new Sample[CalibrationPoses.Count];
@@ -75,6 +78,7 @@ namespace PicoBridge.Tracking
                 ResetSlotsLocked();
                 _state = State.Capturing;
                 _rejectReason = "";
+                _sessionId++;
             }
         }
 
@@ -98,6 +102,20 @@ namespace PicoBridge.Tracking
 
                 _left[_nextPose] = leftSample;
                 _right[_nextPose] = rightSample;
+                // Raw-sample observability (t14): logcat is dead on device
+                // (chatty), so the round's ground truth goes to the JSONL
+                // file at capture time — both sides, plus the head source
+                // the target was composed from.
+                TrackerCalibrationSampleLog.AppendSample(
+                    _sessionId, _nextPose, "left",
+                    leftSample.PuckPos, leftSample.PuckRot,
+                    leftSample.TargetPos, leftSample.TargetRot,
+                    leftSample.HeadPos, leftSample.HeadRot);
+                TrackerCalibrationSampleLog.AppendSample(
+                    _sessionId, _nextPose, "right",
+                    rightSample.PuckPos, rightSample.PuckRot,
+                    rightSample.TargetPos, rightSample.TargetRot,
+                    rightSample.HeadPos, rightSample.HeadRot);
                 _nextPose++;
 
                 if (_nextPose >= CalibrationPoses.Count)
@@ -142,6 +160,8 @@ namespace PicoBridge.Tracking
             sample.PuckRot = frame.Rotation;
             sample.TargetPos = headPos + headRot * localPos;
             sample.TargetRot = headRot * localRot;
+            sample.HeadPos = headPos;
+            sample.HeadRot = headRot;
             return true;
         }
 
@@ -157,6 +177,7 @@ namespace PicoBridge.Tracking
                 TrackerHandCalibration.Commit("right", rightParams);
                 _state = State.Committed;
                 _rejectReason = "";
+                TrackerCalibrationSampleLog.AppendCommitted(_sessionId, leftParams, rightParams);
                 // Round observability: residuals are the gate-tuning signal
                 // (t05 device round) — logcat is the only channel while the
                 // store has no reader yet.
@@ -170,6 +191,7 @@ namespace PicoBridge.Tracking
 
             _state = State.Rejected;
             _rejectReason = !leftOk ? leftReason : rightReason;
+            TrackerCalibrationSampleLog.AppendRejected(_sessionId, _rejectReason);
             ResetSlotsLocked();
         }
 

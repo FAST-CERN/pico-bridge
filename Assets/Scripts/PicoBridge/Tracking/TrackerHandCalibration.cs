@@ -36,9 +36,21 @@ namespace PicoBridge.Tracking
         [Serializable]
         private class Config
         {
+            // t13 schema gate: "" or any unrecognized value = a store from
+            // an older model (pre-AX=YB global {R,t} / local {C,m}) that
+            // this code must NOT reinterpret — on device (09-09) the legacy
+            // file read R_f=(0,0,0,0) ≈ identity and flung the mapped hand
+            // ~3.2 m with no commit in between. SaveLocked stamps the
+            // current value on every write; LoadLocked gates on it.
+            public string model = "";
             public SideParams left = new SideParams();
             public SideParams right = new SideParams();
         }
+
+        /// <summary>Current store schema. Bump whenever SideParams
+        /// semantics change (model swap = new version string, old stores
+        /// load as uncalibrated and viz falls back to puck-only).</summary>
+        private const string StoreModel = "axyb-v1";
 
         private static readonly object _stateLock = new object();
         private static Config _config = new Config();
@@ -155,7 +167,19 @@ namespace PicoBridge.Tracking
             try
             {
                 if (_path != null && File.Exists(_path))
+                {
                     _config = JsonUtility.FromJson<Config>(File.ReadAllText(_path)) ?? new Config();
+                    if (_config.model != StoreModel)
+                    {
+                        // Schema gate (t13): a store from another model
+                        // version is different DATA, not a config tweak —
+                        // fields shift meaning between schemas. Treat both
+                        // sides as uncalibrated; the next round rewrites
+                        // the file under the current schema.
+                        Debug.LogWarning($"[PicoBridge] Tracker-hand calibration store schema '{_config.model}' != '{StoreModel}' - treating as uncalibrated, recalibrate");
+                        _config = new Config();
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -170,6 +194,7 @@ namespace PicoBridge.Tracking
                 return; // EnsureLoaded not called yet; in-memory only
             try
             {
+                _config.model = StoreModel; // stamp on every write (t13)
                 File.WriteAllText(_path, JsonUtility.ToJson(_config, prettyPrint: true));
             }
             catch (Exception e)
