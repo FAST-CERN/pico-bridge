@@ -62,7 +62,9 @@ namespace PicoBridge.Editor
                     "disabled: Apply returns false");
                 Tracking.BodyMountCorrection.SetEnabled(true);
 
-                // ── known-value math: q' = q * Euler(level, yaw, 0) ──
+                // ── known-value math: q' = q * yaw-twist; level = axial
+                // slide in MILLIMETRES (d7bfb22 UX rework semantics — the
+                // panel knob slides the block, it does not pitch it) ──
                 Tracking.BodyMountCorrection.SetSide("left", yaw: 90f, level: 0f);
                 rot = Quaternion.identity;
                 pos = Vector3.zero;
@@ -73,9 +75,11 @@ namespace PicoBridge.Editor
 
                 Tracking.BodyMountCorrection.SetSide("left", yaw: 0f, level: 90f);
                 rot = Quaternion.identity;
+                pos = Vector3.zero;
                 Tracking.BodyMountCorrection.Apply(LeftWristRole, ref pos, ref rot);
-                Check(Mathf.Abs(Quaternion.Dot(rot, Quaternion.Euler(90f, 0f, 0f)) - 1f) < 1e-4f,
-                    "level 90 on identity: q' = Euler(90,0,0)");
+                Check(Mathf.Abs(Quaternion.Dot(rot, Quaternion.identity) - 1f) < 1e-4f &&
+                      (pos - new Vector3(0f, -0.09f, 0f)).magnitude < 1e-6f,
+                    "level 90mm on identity: rotation untouched, pos slides -0.09 m");
 
                 // ── role mapping: wrist+hand share the side, elbow untouched ──
                 Tracking.BodyMountCorrection.SetSide("right", yaw: 30f, level: 0f);
@@ -109,11 +113,13 @@ namespace PicoBridge.Editor
                 pos = Vector3.zero;
                 rot = Quaternion.identity;
                 Tracking.BodyMountCorrection.Apply(LeftWristRole, ref pos, ref rot);
-                // p' = -q' * t with q' = Euler(-4,15,0)
-                var expectedPos = -(Quaternion.Euler(-4f, 15f, 0f) * new Vector3(0.05f, 0.01f, -0.02f));
-                Check((pos - expectedPos).magnitude < 1e-5f, "translation math: p' = p - q' t");
-                Check(Mathf.Abs(Quaternion.Dot(rot, Quaternion.Euler(-4f, 15f, 0f)) - 1f) < 1e-4f,
-                    "seeded rotation math: q' = q * Euler(level, yaw, 0)");
+                // p' = -q' * ((0, level mm) + t) with q' = Euler(0, yaw, 0):
+                // level -4 mm slides up-axis, translation seeds in additively.
+                var expectedPos = -(Quaternion.Euler(0f, 15f, 0f) *
+                    (new Vector3(0f, -0.004f, 0f) + new Vector3(0.05f, 0.01f, -0.02f)));
+                Check((pos - expectedPos).magnitude < 1e-5f, "translation math: p' = p - q' (slide + t)");
+                Check(Mathf.Abs(Quaternion.Dot(rot, Quaternion.Euler(0f, 15f, 0f)) - 1f) < 1e-4f,
+                    "seeded rotation math: q' = q * Euler(0, yaw, 0)");
 
                 // SetSide persists (file reflects the write)
                 Tracking.BodyMountCorrection.SetSide("left", yaw: 16.5f, level: -4f);
