@@ -133,6 +133,14 @@ namespace PicoBridge
             // when the app starts must bind without a power-cycle (the sendMotion
             // gate below would otherwise leave the subscription too late).
             MotionTrackerBinding.EnsureSubscribed();
+            // t04 device round: connection events only report CHANGES, so
+            // trackers that connected before this process started never
+            // appear connected (LED red, gizmos hidden) while sendMotion is
+            // off — the enumeration request is what discovers the
+            // already-connected set, and it used to fire only on the first
+            // Motion frame. Request it at startup unconditionally (idempotent;
+            // AppendMotion's call becomes a no-op).
+            MotionTrackerBinding.EnsureStarted();
             // In-headset tracker gizmos (t07 addendum): FOV feedback + mount
             // orientation reference for offset recalibration (pico_tracker_local axes).
             MotionTrackerVisualizer.EnsureCreated(transform);
