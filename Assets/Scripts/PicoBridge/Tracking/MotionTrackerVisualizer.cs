@@ -142,21 +142,14 @@ namespace PicoBridge.Tracking
             gizmo.CubeMaterial = NewLitMaterial(sideColor);
             gizmo.Cube.sharedMaterial = gizmo.CubeMaterial;
 
-            // t04 ④: rigid L/R letter above the cube, dyed with the side
-            // color — identifies the side at a glance in-headset, and stays
-            // side-colored on the gray ghost so a lost side is still
-            // attributable. Single-sided TextMesh is fine at this size.
-            var labelObject = new GameObject("sideLabel");
-            labelObject.transform.SetParent(root.transform, false);
-            labelObject.transform.localPosition = new Vector3(0f, 0.042f, 0f);
-            var label = labelObject.AddComponent<TextMesh>();
-            label.text = sideLabel;
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            label.fontSize = 64;
-            label.characterSize = 0.005f;
-            label.anchor = TextAnchor.LowerCenter;
-            label.alignment = TextAlignment.Center;
-            label.color = sideColor;
+            // t04 ④: L/R letters ON the cube's ±Z faces (2026-09-08 review:
+            // not above the cube, where they read as part of the axis
+            // gizmo), dyed with the side color — identifies the side at a
+            // glance in-headset and stays side-colored on the gray ghost so
+            // a lost side is still attributable. The back copy is mirrored
+            // so the letter reads correctly from behind too.
+            MakeSideLabel(root.transform, "sideLabel", sideLabel, sideColor, false);
+            MakeSideLabel(root.transform, "sideLabelBack", sideLabel, sideColor, true);
 
             // Axis bars: thin cubes along local +X/+Y/+Z with a fatter tip at
             // the positive end so direction is readable at a glance.
@@ -180,6 +173,25 @@ namespace PicoBridge.Tracking
 
             root.SetActive(false);
             return gizmo;
+        }
+
+        private void MakeSideLabel(Transform parent, string name, string text, Color sideColor, bool back)
+        {
+            var labelObject = new GameObject(name);
+            labelObject.transform.SetParent(parent, false);
+            // On the ±Z cube face (half cubeSize + a hair to avoid z-fight).
+            labelObject.transform.localPosition = new Vector3(0f, 0f, back ? -0.016f : 0.016f);
+            if (back)
+                labelObject.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+            var label = labelObject.AddComponent<TextMesh>();
+            label.text = text;
+            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            label.fontSize = 64;
+            // ~0.02 m letter — fits the 0.03 m cube face with margin.
+            label.characterSize = 0.003f;
+            label.anchor = TextAnchor.MiddleCenter;
+            label.alignment = TextAlignment.Center;
+            label.color = sideColor;
         }
 
         private static Renderer CreatePrimitiveCube(Transform parent, string name, Vector3 localPosition, Quaternion localRotation, Vector3 scale)

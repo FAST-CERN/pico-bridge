@@ -194,6 +194,23 @@ namespace PicoBridge.Editor
                     var rightMesh = rightLabel.GetComponent<TextMesh>();
                     Check(leftMesh != null && leftMesh.text == "L", "left gizmo label reads L");
                     Check(rightMesh != null && rightMesh.text == "R", "right gizmo label reads R");
+                    // t04 feedback: the letter sits ON the cube's ±Z faces
+                    // (not floating above, where it reads as part of the axis
+                    // gizmo), with a mirrored back copy for rear readability.
+                    Check(Mathf.Abs(leftLabel.localPosition.y) < 0.005f &&
+                          leftLabel.localPosition.z >= 0.014f,
+                        "left label on the cube +Z face, not above the axis");
+                    Check(Mathf.Abs(rightLabel.localPosition.y) < 0.005f &&
+                          rightLabel.localPosition.z >= 0.014f,
+                        "right label on the cube +Z face");
+                    var leftBack = leftRoot.Find("sideLabelBack");
+                    var rightBack = rightRoot.Find("sideLabelBack");
+                    Check(leftBack != null && leftBack.GetComponent<TextMesh>().text == "L" &&
+                          Mathf.Abs(Mathf.DeltaAngle(leftBack.localEulerAngles.y, 180f)) < 1f,
+                        "left back-face label mirrored 180° reads L");
+                    Check(rightBack != null && rightBack.GetComponent<TextMesh>().text == "R" &&
+                          Mathf.Abs(Mathf.DeltaAngle(rightBack.localEulerAngles.y, 180f)) < 1f,
+                        "right back-face label mirrored 180° reads R");
                     // TextMesh stores color 8-bit (0.55 -> 140/255), so the
                     // golden comparison is quantized — that IS the rendered
                     // color contract.
