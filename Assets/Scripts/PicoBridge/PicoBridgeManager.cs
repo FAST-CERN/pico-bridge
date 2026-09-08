@@ -548,6 +548,11 @@ namespace PicoBridge
                     BodyTrackingRuntime.EnsureStopped();
                     break;
             }
+
+            // t10: the avatar display set follows the mode — upper chain +
+            // shrunk HEAD/NECK in TrackerBody, the t07 body-mode contract
+            // (HEAD/NECK hidden) otherwise. Static setter: safe in editor.
+            Tracking.BodyTrackingBlockDriver.SetDisplayMode(armStream == ArmStreamMode.TrackerBody);
         }
 
         private void ApplyVideoPolicy(bool enabled, bool autoPreview)

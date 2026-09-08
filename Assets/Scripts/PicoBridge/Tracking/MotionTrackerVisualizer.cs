@@ -50,7 +50,15 @@ namespace PicoBridge.Tracking
             public Color SideColor;
             public bool HasPose;
             public bool IsHand;
+            public float LastValidAt = float.NegativeInfinity;
         }
+
+        /// <summary>Ghost-gray grace window (t10 device round 06:38): the
+        /// puck's optical validity flickers when the hand merely holds
+        /// still — gray only after a SUSTAINED loss, recolor instantly on
+        /// any valid sample. Static field = the smokes' seam (set 0 to
+        /// assert the immediate-gray legacy behavior).</summary>
+        public static float GhostGraceS = 0.7f;
 
         private SideGizmo _left;
         private SideGizmo _right;
@@ -143,10 +151,14 @@ namespace PicoBridge.Tracking
 
         /// <summary>Update pose when valid; keep the last pose as a ghost
         /// when lost. ``muted`` dims a valid gizmo (raw puck under an active
-        /// calibration); ``bright`` boosts it (the t07 hand gizmo).</summary>
+        /// calibration); ``bright`` boosts it (the t07 hand gizmo). The
+        /// gray ghost only kicks in after GhostGraceS of sustained loss —
+        /// optical validity flickers on a still hand.</summary>
         private void SetGizmoPose(SideGizmo g, Vector3 position, Quaternion rotation, bool valid,
             bool muted = false, bool bright = false)
         {
+            if (valid)
+                g.LastValidAt = Time.unscaledTime;
             if (valid || !g.HasPose)
             {
                 g.Root.transform.SetPositionAndRotation(position, rotation);
@@ -154,7 +166,8 @@ namespace PicoBridge.Tracking
             }
             if (!g.Root.activeSelf)
                 g.Root.SetActive(true);
-            ApplyGizmoState(g, valid, muted, bright);
+            bool effectiveValid = valid || Time.unscaledTime - g.LastValidAt < GhostGraceS;
+            ApplyGizmoState(g, effectiveValid, muted, bright);
         }
 
         // ── construction ─────────────────────────────────────

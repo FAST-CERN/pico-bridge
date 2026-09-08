@@ -301,15 +301,18 @@ namespace PicoBridge.Tracking
         // the HMD source, arm chains from the trimmed tracker hands, lower
         // body = static standing template whose root follows the head.
         //
-        // Frame ruling (t09, from the 2026-09-09 recording finding): body
-        // joints are COMMON-frame poses, the wire carries the flipped
-        // Unity-convention values, and the IK solves in exactly that
-        // convention — so solved joints serialize VERBATIM (unlike
-        // AppendBody, which flips its native SDK inputs; the head source is
-        // native and gets flipped ONCE here on the way in). The avatar cache
-        // keeps its native semantics: every solved pose is flipped
-        // Unity→native before BodyFrameCache.SetJoint, so the SDK avatar
-        // renders in tracker mode exactly like body mode.
+        // Frame ruling, CORRECTED on device 2026-09-09 06:18 (the first
+        // avatar round rendered a z-mirrored figure; the body-mode
+        // recording adjudicated it: wire Body[15] ≈ the Head field
+        // DIRECTLY, 0.12 m, while the flipped comparison is 1.8 m off):
+        // the SDK's body localPose values are ALREADY Unity-convention —
+        // the avatar expects Unity values straight (the prefab's own
+        // hierarchy accounts for it), and the WIRE is what flips (the
+        // AppendBody −Z/−Qz/−Qw serialize is the wire convention, matched
+        // by every historical body frame downstream). So: the IK solves in
+        // Unity (head source flips native→Unity once on the way in), the
+        // avatar cache gets the solved Unity pose DIRECTLY, and the wire
+        // output applies the standard flip like AppendBody.
         // BodyMountCorrection does not intervene (t03 ruling: the t17 trim
         // already carries the mount geometry — no double correction).
         private UpperBodyIkSolver _ikSolver;
@@ -342,6 +345,12 @@ namespace PicoBridge.Tracking
                 _ikSolverHeight = OperatorHeightM;
             }
 
+            // t10: tracker-mode body frames count as a valid Body signal for
+            // the visual gates (the SDK body signal is dead here by the mode
+            // mutex — without this the avatar's signal gate disables every
+            // renderer and the figure is invisible while the wire streams).
+            TrackingSignalStatus.NoteTrackerBodyFrame();
+
             var result = _ikSolver.Solve(new UpperBodyIkSolver.FrameInput
             {
                 HeadPosition = headPos,
@@ -362,19 +371,18 @@ namespace PicoBridge.Tracking
                 var pos = result.Positions[i];
                 var rot = result.Rotations[i];
                 _sb.Append("{\"p\":\"");
-                AppendPose(pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w);
+                // Standard native→Unity wire flip, same as AppendBody: the
+                // wire convention is the FLIPPED family (every historical
+                // body frame on the receiver side lives there).
+                AppendPose(pos.x, pos.y, -pos.z, rot.x, rot.y, -rot.z, -rot.w);
                 _sb.Append($"\",\"t\":{t}");
                 _sb.Append(",\"va\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
                 _sb.Append(",\"wva\":\"0.000000,0.000000,0.000000,0.000000,0.000000,0.000000\"");
                 _sb.Append('}');
 
-                // Avatar feed: the cache's native convention = flip of the
-                // solved (Unity/wire) pose.
-                BodyFrameCache.SetJoint(
-                    i,
-                    new Vector3(pos.x, pos.y, -pos.z),
-                    new Quaternion(rot.x, rot.y, -rot.z, -rot.w),
-                    now);
+                // Avatar feed: the solved Unity pose DIRECTLY (the SDK body
+                // values are Unity-convention — see the ruling above).
+                BodyFrameCache.SetJoint(i, pos, rot, now);
             }
             _sb.Append($"],\"len\":{BodyJointCount}}}");
         }

@@ -9,13 +9,16 @@ namespace PicoBridge.Editor
     /// <summary>
     /// Off-device smoke for the tracker-mode body wire content (tracker-ik
     /// map t09): the full pipeline tracker cache → t17 TryMap → t08 IK →
-    /// Body JSON, plus the avatar cache feed. Frame rulings under test:
-    /// the wire carries the IK's Unity-convention values VERBATIM (no
-    /// serialize-time flip — unlike AppendBody, whose inputs are native),
-    /// the head source flips native→Unity once on the way in, and
-    /// BodyFrameCache gets the flipped-back native pose for the SDK avatar.
-    /// Lost-side semantics ride the solver state machine (Held freeze).
-    /// Run headless like the T03 smoke; marker "[T09SMOKE] PASS".
+    /// Body JSON, plus the avatar cache feed. Frame rulings under test
+    /// (CORRECTED on device 2026-09-09 06:18 — the first wiring serialized
+    /// verbatim and flipped the avatar cache, rendering a z-mirrored
+    /// figure; the body-mode recording adjudicated: SDK body values are
+    /// Unity-convention, so): the head source (native) passes to the wire
+    /// VERBATIM, the IK solves in Unity (head flipped once on the way in),
+    /// the WIRE applies the standard AppendBody flip to every solved joint,
+    /// and BodyFrameCache gets the solved Unity pose DIRECTLY for the SDK
+    /// avatar. Lost-side semantics ride the solver state machine (Held
+    /// freeze). Run headless like the T03 smoke; marker "[T09SMOKE] PASS".
     /// </summary>
     public static class PicoBridgeT09IkWireSmoke
     {
@@ -84,13 +87,15 @@ namespace PicoBridge.Editor
                 Check(json.Contains($"\"t\":{headTs}"),
                     "wire: head timestamp propagates to joints");
 
-                // ── 2. head slot = flipped source (numeric, not golden) ──
-                Check((parsed[15].pos - unityHeadPos).magnitude < 1e-5f &&
-                      Quaternion.Angle(parsed[15].rot, unityHeadRot) < 0.01f,
-                    "wire: head slot = native source flipped to Unity");
+                // ── 2. head slot = native source VERBATIM (corrected
+                //      convention: the wire is the flipped family and the
+                //      head source already lives in it) ──
+                Check((parsed[15].pos - nativeHeadPos).magnitude < 1e-5f &&
+                      Quaternion.Angle(parsed[15].rot, nativeHeadRot) < 0.01f,
+                    "wire: head slot = native HMD source verbatim (recording-adjudicated convention)");
 
-                // ── 3. umbrella: wire joints == reference IK verbatim ──
-                // (proves no serialize-time flip / no double correction)
+                // ── 3. umbrella: wire joints == FLIP(reference IK output)
+                //      — the same serialize flip AppendBody applies ──
                 var reference = new UpperBodyIkSolver(1.75f);
                 var refResult = reference.Solve(new UpperBodyIkSolver.FrameInput
                 {
@@ -103,26 +108,36 @@ namespace PicoBridge.Editor
                 bool verbatim = true;
                 for (int i = 0; i < 24; i++)
                 {
-                    var dp = (parsed[i].pos - refResult.Positions[i]).magnitude;
-                    var da = Quaternion.Angle(parsed[i].rot, refResult.Rotations[i]);
+                    var expectPos = new Vector3(refResult.Positions[i].x, refResult.Positions[i].y, -refResult.Positions[i].z);
+                    var expectRot = new Quaternion(refResult.Rotations[i].x, refResult.Rotations[i].y, -refResult.Rotations[i].z, -refResult.Rotations[i].w);
+                    var dp = (parsed[i].pos - expectPos).magnitude;
+                    var da = Quaternion.Angle(parsed[i].rot, expectRot);
                     if (dp >= 1e-5f || da >= 0.05f)
-                        Debug.Log($"[T09SMOKE] diag joint {i}: posDelta={dp:E3} rotDelta={da:F3}° wire={parsed[i].pos} ref={refResult.Positions[i]}");
+                        Debug.Log($"[T09SMOKE] diag joint {i}: posDelta={dp:E3} rotDelta={da:F3}° wire={parsed[i].pos} expected={expectPos}");
                     verbatim &= dp < 1e-5f && da < 0.05f;
                 }
-                Check(verbatim, "wire: all 24 joints = IK output verbatim (Unity convention, no extra flip)");
+                Check(verbatim, "wire: all 24 joints = standard flip of the IK output (AppendBody wire convention)");
 
-                // ── 4. end-to-end left hand: published puck → wire wrist ──
-                Check((parsed[20].pos - leftPuckPos).magnitude < 5e-3f,
-                    "wire: left wrist = published puck position (zero trim, ≤5mm)");
-                Check(Quaternion.Angle(parsed[20].rot, leftPuckRot * UpperBodyIkSolver.LeftWristConvention) < 1f,
-                    "wire: left wrist rotation = puck∘C_wrist (≤1°)");
+                // ── 4. end-to-end left hand: published puck → wire wrist
+                //      (wire = flip of the Unity pose) ──
+                var wireLeftWristPos = new Vector3(parsed[20].pos.x, parsed[20].pos.y, -parsed[20].pos.z);
+                var wireLeftWristRot = new Quaternion(parsed[20].rot.x, parsed[20].rot.y, -parsed[20].rot.z, -parsed[20].rot.w);
+                Check((wireLeftWristPos - leftPuckPos).magnitude < 5e-3f,
+                    "wire: left wrist (unflipped) = published puck position (zero trim, ≤5mm)");
+                Check(Quaternion.Angle(wireLeftWristRot, leftPuckRot * UpperBodyIkSolver.LeftWristConvention) < 1f,
+                    "wire: left wrist rotation (unflipped) = puck∘C_wrist (≤1°)");
 
                 // ── 5. never-seen right side = root-placed template arm ──
-                var templateWrist = refResult.Positions[UpperBodyIkSolver.RightWrist];
+                var templateWrist = new Vector3(refResult.Positions[UpperBodyIkSolver.RightWrist].x,
+                    refResult.Positions[UpperBodyIkSolver.RightWrist].y,
+                    -refResult.Positions[UpperBodyIkSolver.RightWrist].z);
                 Check((parsed[21].pos - templateWrist).magnitude < 1e-5f,
-                    "wire: right (never seen) = template arm");
+                    "wire: right (never seen) = template arm (flipped)");
 
-                // ── 6. avatar cache: native = flip of the wire pose ──
+                // ── 6. avatar cache: the solved Unity pose DIRECTLY (the
+                //      SDK body values are Unity-convention — the corrected
+                //      ruling; the previous flip-back rendered a z-mirrored
+                //      figure on device) ──
                 Check(BodyFrameCache.HasData, "avatar: BodyFrameCache fed in tracker mode");
                 var cachePos = new Vector3[BodyFrameCache.JointCount];
                 var cacheRot = new Quaternion[BodyFrameCache.JointCount];
@@ -130,12 +145,10 @@ namespace PicoBridge.Editor
                 bool cacheOk = true;
                 foreach (int i in new[] { 0, 15, 20, 21 })
                 {
-                    var expectPos = new Vector3(parsed[i].pos.x, parsed[i].pos.y, -parsed[i].pos.z);
-                    var expectRot = new Quaternion(parsed[i].rot.x, parsed[i].rot.y, -parsed[i].rot.z, -parsed[i].rot.w);
-                    cacheOk &= (cachePos[i] - expectPos).magnitude < 1e-5f &&
-                               Quaternion.Angle(cacheRot[i], expectRot) < 0.05f;
+                    cacheOk &= (cachePos[i] - refResult.Positions[i]).magnitude < 1e-5f &&
+                               Quaternion.Angle(cacheRot[i], refResult.Rotations[i]) < 0.05f;
                 }
-                Check(cacheOk, "avatar: cached poses = flipped (native) versions of the wire poses");
+                Check(cacheOk, "avatar: cached poses = IK Unity output directly (no flip)");
 
                 // ── 7. optical loss → Held freeze (wire stays verbatim) ──
                 var frozenLeftWrist = poses[20];

@@ -21,6 +21,30 @@ namespace PicoBridge.Tracking
 
     public static class TrackingSignalStatus
     {
+        // t10 (2026-09-09): tracker-mode body frames are a valid Body
+        // signal for the visual gates. The SDK body tracking is stopped by
+        // the arm-source mode mutex in TrackerBody mode, which used to read
+        // as "no body signal" — the TrackingVisualSignalGate on the avatar
+        // disabled every renderer and the operator saw nothing while the
+        // t09 IK streamed perfect frames. AppendTrackerBody notes each
+        // frame; a frame within TrackerBodySignalFreshS counts as valid.
+        private const float TrackerBodySignalFreshS = 1.0f;
+        private static float _trackerBodyFrameAt = float.NegativeInfinity;
+
+        /// <summary>Called by AppendTrackerBody on every tracker-mode body
+        /// frame (main thread).</summary>
+        public static void NoteTrackerBodyFrame()
+        {
+            _trackerBodyFrameAt = Time.unscaledTime;
+        }
+
+        /// <summary>True when tracker-mode body frames flowed recently —
+        /// the tracker-mode equivalent of a valid SDK body signal.</summary>
+        public static bool HasRecentTrackerBodyFrames()
+        {
+            return Time.unscaledTime - _trackerBodyFrameAt <= TrackerBodySignalFreshS;
+        }
+
 #if UNITY_ANDROID && !UNITY_EDITOR
         private static readonly List<InputDevice> Devices = new List<InputDevice>();
 
@@ -54,7 +78,7 @@ namespace PicoBridge.Tracking
                     return false;
 #endif
                 case TrackingSignalKind.Body:
-                    return HasValidBodySignal();
+                    return HasValidBodySignal() || HasRecentTrackerBodyFrames();
                 case TrackingSignalKind.Motion:
                     return HasValidMotionTrackerSignal();
                 default:

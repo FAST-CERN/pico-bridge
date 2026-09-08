@@ -61,13 +61,30 @@ namespace PicoBridge.Editor
                 Check(!leftRootGo.activeSelf, "viz: hidden while immersive FPV active");
 
                 // Immersive ends with the side optically lost in the meantime:
-                // gizmo returns as a gray ghost holding the last pose.
+                // gizmo returns as a gray ghost holding the last pose. Zero
+                // the ghost grace window for this check (the t10 debounce
+                // keeps color through brief validity flickers otherwise).
                 immersive = false;
+                MotionTrackerVisualizer.GhostGraceS = 0f;
                 TrackerFrameCache.PublishInvalid("left", 7, 100.2f);
                 InvokePrivate(viz, "PollSide", "left", leftGizmo);
                 Check(leftRootGo.activeSelf && Nearly(leftRootGo.transform.position.z, -1.0f) &&
                       Nearly(cubeMat.color.r, 0.4f) && Nearly(cubeMat.color.g, 0.4f) && Nearly(cubeMat.color.b, 0.44f),
                     "viz: after immersive, lost side shows gray ghost at last pose");
+
+                // t10 debounce: a brief validity flicker (like a still hand)
+                // stays side-colored through the grace window — recolor on
+                // the next valid sample, gray only on sustained loss. The
+                // puck gizmo may be muted (the trim mapping is always on),
+                // so assert "not ghost gray" rather than an exact color.
+                MotionTrackerVisualizer.GhostGraceS = 0.7f;
+                TrackerFrameCache.PublishValid("left", 7, Pose, Rot, 100.3f);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                TrackerFrameCache.PublishInvalid("left", 7, 100.4f);
+                InvokePrivate(viz, "PollSide", "left", leftGizmo);
+                Check(!(Nearly(cubeMat.color.r, 0.4f) && Nearly(cubeMat.color.g, 0.4f) && Nearly(cubeMat.color.b, 0.44f)),
+                    "viz: brief flicker stays side-colored inside the ghost grace window");
+                MotionTrackerVisualizer.GhostGraceS = 0f; // legacy immediate-gray for the t07 ghost checks below
 
                 // Immersive again with no fresh data at all → stays hidden.
                 immersive = true;

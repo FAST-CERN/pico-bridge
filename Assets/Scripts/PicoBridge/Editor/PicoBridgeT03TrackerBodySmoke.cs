@@ -126,22 +126,41 @@ namespace PicoBridge.Editor
                     "wire: body block contract (poseSpace/alignment/24 joints/len)");
                 var poses = PoseFields(json);
                 Check(poses.Length == 24, "wire: 24 joint poses");
-                // t09 ruling: the head source is NATIVE; the wire carries
-                // the flipped Unity convention — this golden (negated
-                // z/qz/qw) cannot pass a raw passthrough.
-                Check(poses[15] == "0.500000,-0.250000,-1.000000,0.100000,0.200000,-0.300000,-0.900000",
-                    "wire: head slot = flipped HMD pose (t09 uniform-convention ruling)");
+                // t09 convention ruling (corrected on device 06:18): the
+                // wire is the FLIPPED family and the head source is already
+                // native-family — so the head slot passes through VERBATIM
+                // (the t03 stub's accidental convention, now confirmed by
+                // the body-mode recording: wire Body[15] ≈ Head field
+                // directly). This golden (positive z/qz/qw) cannot pass a
+                // double flip.
+                Check(poses[15] == "0.500000,-0.250000,1.000000,0.100000,0.200000,0.300000,0.900000",
+                    "wire: head slot = native HMD source verbatim (t09 corrected convention)");
                 Check(poses[0] != "0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000",
                     "wire: body content is IK (pelvis = standing template, not identity)");
                 Check(json.Contains("\"t\":1234567"), "wire: head timestamp propagates");
 
-                // Head unavailable (no source): identity head slot, t=0, still len 24.
+                // Head unavailable (no source): identity head slot (the
+                // serialize flip maps identity to its negative-identity
+                // twin — same rotation, different string — so compare
+                // numerically), t=0, still len 24.
                 TrackerBodyHead.Source = null;
                 sb.Clear();
                 InvokePrivate(collector, "AppendTrackerBody");
                 json = sb.ToString();
                 poses = PoseFields(json);
-                Check(poses.Length == 24 && poses[15] == "0.000000,0.000000,0.000000,0.000000,0.000000,0.000000,1.000000",
+                var headParts = poses[15].Split(',');
+                var headPos0 = new Vector3(
+                    float.Parse(headParts[0], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(headParts[1], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(headParts[2], System.Globalization.CultureInfo.InvariantCulture));
+                var headRot0 = new Quaternion(
+                    float.Parse(headParts[3], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(headParts[4], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(headParts[5], System.Globalization.CultureInfo.InvariantCulture),
+                    float.Parse(headParts[6], System.Globalization.CultureInfo.InvariantCulture));
+                Check(poses.Length == 24 &&
+                      headPos0.magnitude < 1e-6f &&
+                      Quaternion.Angle(headRot0, Quaternion.identity) < 0.01f,
                     "wire: head source absent → identity head slot (len 24)");
                 Check(!json.Contains("\"t\":1234567") && json.Contains("\"t\":0"),
                     "wire: head source absent → t=0");
