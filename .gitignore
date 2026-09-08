@@ -79,3 +79,7 @@ pico_bridge_recordings/
 build-e2e.log
 compile-check.log
 Builds/
+
+# Editor build/smoke logs (local diagnostics)
+build-*.log
+avatar-setup.log
