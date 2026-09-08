@@ -89,6 +89,7 @@ namespace PicoBridge
             Tracking.BodyMountCorrection.EnsureLoaded();
             Tracking.TrackerHandCalibration.EnsureLoaded();
             Tracking.TrackerCalibrationSampleLog.EnsureLoaded();
+            Tracking.HeadFrameProbe.EnsureLoaded();
 
             _tcp = gameObject.AddComponent<PicoTcpClient>();
             _tcp.serverAddress = serverAddress;
@@ -127,6 +128,15 @@ namespace PicoBridge
             // Unity frame as the tracker cache (t05 Q1) — the XR head
             // camera, not the PXR raw pose.
             Tracking.TrackerCalibrationSession.HeadSource = ReadHeadUnityPose;
+            // Head-source frame probe (tracker-ik t15): both sources at
+            // the same tick, remote-triggered, JSONL beside the store.
+            Tracking.HeadFrameProbe.UnitySource = ReadHeadUnityPose;
+            Tracking.HeadFrameProbe.NativeSource = delegate (
+                out Vector3 probePos, out Quaternion probeRot)
+            {
+                long ts;
+                return ReadTrackerHeadPose(out probePos, out probeRot, out ts);
+            };
 #endif
             _trackingInterval = 1f / trackingFps;
         }
@@ -207,6 +217,10 @@ namespace PicoBridge
             // driver so the countdown keeps running even while the panel
             // itself is hidden; the guide aborts itself on immersive entry.
             Tracking.TrackerCalibrationGuide.Tick(Time.deltaTime);
+
+            // Head-source frame probe window (tracker-ik t15): no-op unless
+            // a set_head_probe window is open.
+            Tracking.HeadFrameProbe.Tick();
 
             // Rate-limited tracking send
             _trackingTimer += Time.deltaTime;
@@ -407,6 +421,25 @@ namespace PicoBridge
                 Debug.Log($"[PicoBridge] BridgeControl: set_calibration {action} -> {state} " +
                           $"pose {Tracking.TrackerCalibrationSession.NextPoseIndex}" +
                           (reason.Length > 0 ? $" ({reason})" : ""));
+                return;
+            }
+
+            // Head-source frame probe (tracker-ik t15): record both head
+            // pose sources (XR camera + PXR predicted sensor) at the same
+            // tick for a timed window; the JSONL beside the store is the
+            // t17 frame-rotation-vs-translation adjudication input. The
+            // operator wears the headset and moves the head through the
+            // window (a swept rotation is what identifies a constant frame).
+            if (channel == "tracking" && type == "set_head_probe")
+            {
+                string action = ExtractString(json, "action");
+                float duration = ExtractFloat(json, "duration") ?? 5f;
+                if (action == "begin")
+                    Tracking.HeadFrameProbe.Begin(duration);
+                else if (action == "stop")
+                    Tracking.HeadFrameProbe.Stop();
+                Debug.Log($"[PicoBridge] BridgeControl: set_head_probe {action} -> " +
+                          $"running={Tracking.HeadFrameProbe.IsRunning} samples={Tracking.HeadFrameProbe.SampleCount}");
                 return;
             }
 
