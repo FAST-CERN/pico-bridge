@@ -25,9 +25,8 @@ namespace PicoBridge.Tracking
     ///   component p̂ (fingers axis projected ⊥ the shoulder-wrist axis):
     ///   E = W − L2·(α·axis + β·p̂), β = √(1−α²) — both bone lengths stay
     ///   rigidly exact by construction; axial mismatch is absorbed by the
-    ///   wrist joint (wrist orientation outputs R_hand ∘ PalmToAnatomical ∘
-    ///   C_wrist — the t20 half turn onto the anatomical frame C_wrist was
-    ///   ported against).
+    ///   wrist joint (wrist orientation outputs R_hand ∘ C′ — the t20
+    ///   MEASURED palm→SDK-wrist constant, see WristPalmConvention).
     /// - Unreachable targets clamp ONTO the reach sphere (straight-arm
     ///   semantics, rigid bones); no joint-limit tables in v1.
     /// - A lost side freezes its last solved arm for HoldSeconds, then
@@ -105,29 +104,30 @@ namespace PicoBridge.Tracking
             new Quaternion(-0.047f, 0.052f, -0.997f, -0.025f));
         public static readonly Quaternion LeftElbowConvention = Quaternion.Normalize(
             new Quaternion(0.030f, 0.126f, -0.991f, -0.015f));
-        public static readonly Quaternion LeftWristConvention = Quaternion.Normalize(
-            new Quaternion(-0.089f, 0.134f, -0.980f, -0.121f));
         public static readonly Quaternion RightShoulderConvention = Quaternion.Normalize(
             new Quaternion(-0.030f, 0.062f, 0.023f, 0.997f));
         public static readonly Quaternion RightElbowConvention = Quaternion.Normalize(
             new Quaternion(-0.110f, -0.130f, 0.038f, 0.985f));
-        public static readonly Quaternion RightWristConvention = Quaternion.Normalize(
-            new Quaternion(-0.143f, -0.035f, 0.168f, 0.975f));
 
-        // ── t20: palm convention → anatomical forearm frame ──
+        // ── t20: palm convention → SDK wrist joint quat (MEASURED, not
+        // derived — ticket 20's measurement record) ──
 
-        /// <summary>Half turn about the extension axis mapping the palm
-        /// convention onto the anatomical forearm frame (t20, derived
-        /// axis-by-axis in ticket 20): in the reference configuration
-        /// (upper arm down, forearm forward, palm down) palm +X (fingers)
-        /// = anatomical x (elbow→wrist), palm +Y (green) = −anatomical y
-        /// (flexion normal), palm +Z (back of hand) = −anatomical z —
-        /// diag(1,−1,−1), a proper self-inverse rotation, side-independent
-        /// (chirality lives in the per-side C_wrist). C_wrist was ported
-        /// against the ANATOMICAL frame (Teleopit synth _arm_segment_quats:
-        /// Wrist = r_forearm ∘ C_wrist), so the wrist output is
-        /// palm ∘ PalmToAnatomical ∘ C_wrist.</summary>
-        public static readonly Quaternion PalmToAnatomical = Quaternion.AngleAxis(180f, Vector3.right);
+        /// <summary>C′ := P⁻¹·Q — the palm-convention frame onto the SDK
+        /// wrist joint quat, a true constant (both frames are rigid on the
+        /// hand). Measured on device 2026-09-09 08:45 from a body-mode
+        /// reference-pose hold (4741 frames, per-frame spread 2.3-2.5°;
+        /// Teleopit scripts/dev/analyze_t20_body_ref.py on
+        /// data/pico_tracker_calib/2026-09-09/t20_bodyref2.jsonl).
+        /// Replaces the ported C_wrist composition, which was ~85° off per
+        /// side: the synth constant carries the source recording's
+        /// hanging-wrist state and only holds against the anatomical
+        /// forearm frame it was fitted with — never against the measured
+        /// palm frame. Per-side constants; chirality lives here.
+        /// Normalized on construction (3-decimal table rounding).</summary>
+        public static readonly Quaternion LeftWristPalmConvention = Quaternion.Normalize(
+            new Quaternion(-0.156f, 0.621f, 0.767f, 0.050f));
+        public static readonly Quaternion RightWristPalmConvention = Quaternion.Normalize(
+            new Quaternion(0.620f, -0.156f, 0.005f, 0.769f));
 
         // ── static template: first standing frame of the 20260904_231338
         // recording (arms hanging naturally). Common-frame values in the
@@ -403,8 +403,8 @@ namespace PicoBridge.Tracking
             var foreFrame = AnatomicalFrame(fHat, nRef);
             var shoulderConv = left ? LeftShoulderConvention : RightShoulderConvention;
             var elbowConv = left ? LeftElbowConvention : RightElbowConvention;
-            var wristConv = left ? LeftWristConvention : RightWristConvention;
-            var wristQuat = hand.Rotation * PalmToAnatomical * wristConv; // t20: palm∘K⁻¹∘C_wrist = anatomical∘C_wrist (ruling 6 + ticket 20)
+            var wristConv = left ? LeftWristPalmConvention : RightWristPalmConvention;
+            var wristQuat = hand.Rotation * wristConv; // t20: measured C′ = P⁻¹·Q (hand orientation carries directly, ruling 6)
 
             var handPos = wrist + HandSegmentM * fDir;
 

@@ -127,8 +127,8 @@ namespace PicoBridge.Editor
                 var wireLeftWristRot = new Quaternion(parsed[20].rot.x, parsed[20].rot.y, -parsed[20].rot.z, -parsed[20].rot.w);
                 Check((wireLeftWristPos - leftPuckPos).magnitude < 5e-3f,
                     "wire: left wrist (unflipped) = published puck position (zero trim, ≤5mm)");
-                Check(Quaternion.Angle(wireLeftWristRot, leftPuckRot * UpperBodyIkSolver.PalmToAnatomical * UpperBodyIkSolver.LeftWristConvention) < 1f,
-                    "wire: left wrist rotation (unflipped) = puck∘K⁻¹∘C_wrist (t20, ≤1°)");
+                Check(Quaternion.Angle(wireLeftWristRot, leftPuckRot * UpperBodyIkSolver.LeftWristPalmConvention) < 1f,
+                    "wire: left wrist rotation (unflipped) = puck∘C′ (t20 measured, ≤1°)");
 
                 // ── 5. never-seen right side = root-placed template arm ──
                 var templateWrist = new Vector3(refResult.Positions[UpperBodyIkSolver.RightWrist].x,

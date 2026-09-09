@@ -23,20 +23,21 @@ namespace PicoBridge.Editor
         // _ARM_CONVENTION_QUATS (Unity xyzw), copied independently and
         // normalized (the table is 3-decimal rounded; raw norms sit off 1
         // by ~1e-3, which Unity's Angle does not normalize away).
-        private static readonly Quaternion GoldLeftWrist = Quaternion.Normalize(
-            new Quaternion(-0.089f, 0.134f, -0.980f, -0.121f));
-        private static readonly Quaternion GoldRightWrist = Quaternion.Normalize(
-            new Quaternion(-0.143f, -0.035f, 0.168f, 0.975f));
         private static readonly Quaternion GoldLeftShoulder = Quaternion.Normalize(
             new Quaternion(-0.047f, 0.052f, -0.997f, -0.025f));
 
-        // t20: palm convention → anatomical forearm frame, derived
-        // independently here (ticket 20's axis mapping): palm +X (fingers)
-        // = anatomical x (elbow→wrist), palm +Y (green) = −anatomical y
-        // (flexion normal), palm +Z (back of hand) = −anatomical z —
-        // diag(1,−1,−1), a self-inverse proper rotation about the
-        // extension axis, side-independent.
-        private static readonly Quaternion PalmToAnatomicalGold = Quaternion.AngleAxis(180f, Vector3.right);
+        // t20 wrist gold: palm convention → SDK wrist joint quat, MEASURED
+        // on device 2026-09-09 08:45 (4741-frame body-mode reference-pose
+        // hold, spread 2.3-2.5°; Teleopit scripts/dev/analyze_t20_body_ref.py
+        // on data/pico_tracker_calib/2026-09-09/t20_bodyref2.jsonl). C' :=
+        // P⁻¹·Q (both frames rigid on the hand — a true constant); the
+        // ported C_wrist chain was ~85° off per side (the synth constant
+        // carries the recording's hanging-wrist state — ticket 20).
+        // Copied independently from the measurement record, normalized.
+        private static readonly Quaternion GoldLeftWristPrime = Quaternion.Normalize(
+            new Quaternion(-0.156f, 0.621f, 0.767f, 0.050f));
+        private static readonly Quaternion GoldRightWristPrime = Quaternion.Normalize(
+            new Quaternion(0.620f, -0.156f, 0.005f, 0.769f));
 
         private const float PosTol = 5e-3f;      // 5 mm
         private const float RigidTol = 1e-4f;    // 0.1 mm
@@ -197,20 +198,19 @@ namespace PicoBridge.Editor
                 UpperBodyIkSolver.HandSegmentM * (liveLeft.Rotation * Vector3.right);
             Check((res.Positions[UpperBodyIkSolver.LeftHand] - handExpected).magnitude < PosTol,
                 "left hand = wrist + 0.09·rot·(+X fingers)");
-            Check(Quaternion.Angle(res.Rotations[UpperBodyIkSolver.LeftWrist], liveLeft.Rotation * PalmToAnatomicalGold * GoldLeftWrist) < AngTol,
-                "left wrist rotation = R_hand∘K⁻¹∘C_wrist (t20 palm→anatomical half turn, golden literal, ≤1°)");
-            Check(Quaternion.Angle(res.Rotations[UpperBodyIkSolver.RightWrist], liveRight.Rotation * PalmToAnatomicalGold * GoldRightWrist) < AngTol,
-                "right wrist rotation = R_hand∘K⁻¹∘C_wrist (t20, golden literal, ≤1°)");
+            Check(Quaternion.Angle(res.Rotations[UpperBodyIkSolver.LeftWrist], liveLeft.Rotation * GoldLeftWristPrime) < AngTol,
+                "left wrist rotation = R_hand∘C′ (t20 measured constant, ≤1°)");
+            Check(Quaternion.Angle(res.Rotations[UpperBodyIkSolver.RightWrist], liveRight.Rotation * GoldRightWristPrime) < AngTol,
+                "right wrist rotation = R_hand∘C′ (t20, ≤1°)");
             Check(Quaternion.Angle(res.Rotations[UpperBodyIkSolver.LeftHand], res.Rotations[UpperBodyIkSolver.LeftWrist]) < 0.05f,
                 "hand rotation follows wrist");
 
-            // ── 4b. reference-configuration wrist gold (t20): C_wrist
-            //      composes on the ANATOMICAL forearm frame (Teleopit
-            //      synth _arm_segment_quats: Wrist = r_forearm ∘ C_wrist),
-            //      not on the palm convention — the two differ by the half
-            //      turn PalmToAnatomicalGold. Reference pose: upper arm
-            //      down, forearm forward (elbow flexed 90°), palm down,
-            //      back of hand up, fingers forward. ──
+            // ── 4b. reference-configuration wrist gold (t20): C′ is the
+            //      MEASURED palm→SDK-wrist constant (device body-mode
+            //      reference-pose hold, 2026-09-09); in the reference pose
+            //      (upper arm down, forearm forward, palm down, back of
+            //      hand up, fingers forward) the palm frame is analytically
+            //      known, so the wrist output must be refPalm ∘ C′. ──
             var refWristTarget = rightShoulder + new Vector3(0f, -l1, l2);
             // Palm frame from explicit world axes (t17 convention: +X
             // fingers, +Z back, +Y = back×fingers — "blue up, red forward,
@@ -222,39 +222,28 @@ namespace PicoBridge.Editor
             pm.SetColumn(2, Vector3.up);
             pm.SetColumn(3, new Vector4(0f, 0f, 0f, 1f));
             var refPalm = pm.rotation;
-            // Anatomical forearm frame from explicit world axes: x =
-            // elbow→wrist = forward, y = flexion normal = cross(down,
-            // forward) = body-left, z = x×y = down. (The solver's
-            // stabilized normal tilts 0.24° off body-left — 0.5° absorbs.)
-            var am = default(Matrix4x4);
-            am.SetColumn(0, Vector3.forward);
-            am.SetColumn(1, Vector3.left);
-            am.SetColumn(2, Vector3.down);
-            am.SetColumn(3, new Vector4(0f, 0f, 0f, 1f));
-            var refAna = am.rotation;
             var refRight = solver.Solve(Frame(liveLeft, new UpperBodyIkSolver.HandInput
             {
                 Valid = true,
                 Position = refWristTarget,
                 Rotation = refPalm,
             }, 102.0));
-            Check(Quaternion.Angle(refRight.Rotations[UpperBodyIkSolver.RightWrist], refAna * GoldRightWrist) < 0.5f,
-                "t20 gold: reference pose right wrist = anatomical∘C_wrist (= palm∘K⁻¹∘C_wrist)");
-            Check(Quaternion.Angle(refRight.Rotations[UpperBodyIkSolver.RightHand], refAna * GoldRightWrist) < 0.5f,
+            Check(Quaternion.Angle(refRight.Rotations[UpperBodyIkSolver.RightWrist], refPalm * GoldRightWristPrime) < 0.5f,
+                "t20 gold: reference pose right wrist = refPalm∘C′ (measured)");
+            Check(Quaternion.Angle(refRight.Rotations[UpperBodyIkSolver.RightHand], refPalm * GoldRightWristPrime) < 0.5f,
                 "t20 gold: reference pose right hand follows wrist");
             Check((refRight.Positions[UpperBodyIkSolver.RightElbow] - (rightShoulder + Vector3.down * l1)).magnitude < 1e-4f,
                 "t20 gold: reference pose solves elbow straight down, forearm forward (two-link consistency)");
             // Left arm in the mirror-symmetric reference pose: the SAME
-            // world palm frame and the SAME anatomical frame — K is
-            // side-independent, chirality lives in the per-side C_wrist.
+            // world palm frame; chirality lives in the per-side C′.
             var refLeft = solver.Solve(Frame(new UpperBodyIkSolver.HandInput
             {
                 Valid = true,
                 Position = leftShoulder + new Vector3(0f, -l1, l2),
                 Rotation = refPalm,
             }, liveRight, 103.0));
-            Check(Quaternion.Angle(refLeft.Rotations[UpperBodyIkSolver.LeftWrist], refAna * GoldLeftWrist) < 0.5f,
-                "t20 gold: reference pose left wrist = anatomical∘C_wrist (mirror pose, same K)");
+            Check(Quaternion.Angle(refLeft.Rotations[UpperBodyIkSolver.LeftWrist], refPalm * GoldLeftWristPrime) < 0.5f,
+                "t20 gold: reference pose left wrist = refPalm∘C′ (mirror pose)");
 
             // Shoulder anchor sanity (synth constants in the head frame).
             Check((res.Positions[UpperBodyIkSolver.LeftShoulder] - leftShoulder).magnitude < 1e-5f &&
@@ -314,7 +303,7 @@ namespace PicoBridge.Editor
                   Mathf.Abs(Vector3.Distance(res.Positions[UpperBodyIkSolver.LeftElbow], res.Positions[UpperBodyIkSolver.LeftWrist]) - l2) < RigidTol,
                 "clamped arm stays rigid (straight-arm semantics)");
             Check(Finite(res.Positions[UpperBodyIkSolver.LeftHand]) &&
-                  Quaternion.Angle(res.Rotations[UpperBodyIkSolver.LeftWrist], Quaternion.identity * PalmToAnatomicalGold * GoldLeftWrist) < AngTol,
+                  Quaternion.Angle(res.Rotations[UpperBodyIkSolver.LeftWrist], Quaternion.identity * GoldLeftWristPrime) < AngTol,
                 "clamped arm orientation unaffected");
 
             var close = new UpperBodyIkSolver.HandInput
