@@ -10,6 +10,8 @@ PICO Bridge streams headset, controller, hand, body, and Motion Tracker data fro
 | [Unity Development](unity-development.md) | Unity version, project structure, editor menu, development rules, and validation steps. |
 | [Build & Install](build-and-install.md) | Full clone-to-`adb install` flow on any machine, the shared signing key, and troubleshooting. |
 
+Two-way audio in the tracking app: [Integrated audio](audio.md).
+
 ## Quick Start
 
 1. Connect the PICO headset and PC to the same local network.

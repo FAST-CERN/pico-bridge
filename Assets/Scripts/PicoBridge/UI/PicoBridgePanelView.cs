@@ -36,6 +36,11 @@ namespace PicoBridge.UI
         public TMP_InputField urlOctetBInput;
         public Button applyUrlButton;
 
+        [Header("Audio")]
+        public Button audioButton;
+        public Button microphoneMuteButton;
+        public TMP_Text audioStatusText;
+
         [Header("Stream Resolution")]
         public Button resolution720Button;
         public Button resolution1080Button;

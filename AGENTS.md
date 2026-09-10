@@ -45,3 +45,11 @@
 
 - Do not commit `Library/`, `Temp/`, `Obj/`, `Logs/`, `Build/`, `Builds/`, or `UserSettings/`.
 - Do not treat generated `*.csproj` / `*.sln` files as source.
+
+## Integrated audio
+
+- Keep tracking and audio in the same foreground Pico Bridge APK. Audio defaults off and uses explicit microphone permission plus panel start/stop/mute controls.
+- `PicoAudioController` reuses the current tracking server address; `PicoAudioService.java` owns native capture, UDP, and playback workers. No audio I/O may block Unity tracking.
+- Wire format: 16 kHz mono PCM16LE, 320-byte/10 ms UDP; host 50001 uplink, headset 50002 downlink. Keep the provided robot audio transport compatible.
+- Pause/disconnect stops audio; resume/reconnect restores it only when previously enabled. Serialize service cleanup/start and contain audio errors so they cannot terminate tracking.
+- Audio UI belongs in the editor-built serialized panel. Run `PicoBridgeAudioSmoke.Run` for real TCP idle/EOF and UI reference checks, then build Android and validate both audio directions on device.

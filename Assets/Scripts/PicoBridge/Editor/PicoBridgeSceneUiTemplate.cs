@@ -253,7 +253,7 @@ namespace PicoBridge.Editor
             AddOutline(footerImage, StrokeColor, new Vector2(1.5f, -1.5f));
             var footerLayout = footer.GetComponent<VerticalLayoutGroup>();
             footerLayout.padding = new RectOffset(12, 12, 10, 10);
-            AddLayoutElement(footer.gameObject, -1f, 192f, 0f, 0f);
+            AddLayoutElement(footer.gameObject, -1f, 250f, 0f, 0f);
 
             var tracking = CreateRow("TrackingSignals", footer, 54f, 8f);
             view.trackingSignalImages = new Image[TrackingSignalLabels.Length];
@@ -314,6 +314,12 @@ namespace PicoBridge.Editor
 
             view.resolution720Button = CreatePillButton(urlRow, "Res720Button", "720p", 100f);
             view.resolution1080Button = CreatePillButton(urlRow, "Res1080Button", "1080p", 100f);
+
+            var audioRow = CreateRow("AudioControl", footer, 50f, 10f);
+            view.audioButton = CreatePillButton(audioRow, "AudioButton", "Start audio", 140f);
+            view.microphoneMuteButton = CreatePillButton(audioRow, "MuteMicrophoneButton", "Mute mic", 140f);
+            view.audioStatusText = CreateText("AudioStatus", audioRow, "Audio off", 18, FontStyles.Normal, TextAlignmentOptions.Left, MutedTextColor);
+            AddLayoutElement(view.audioStatusText.gameObject, -1f, 44f, 1f, 0f);
         }
 
         private static Button CreatePillButton(RectTransform parent, string name, string label, float width)

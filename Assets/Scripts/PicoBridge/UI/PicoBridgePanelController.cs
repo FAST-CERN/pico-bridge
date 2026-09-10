@@ -33,7 +33,7 @@ namespace PicoBridge.UI
         private static readonly Vector2 CollapsedAnchor = new Vector2(0.5f, 0f);
         private static readonly Vector2 CollapsedSize = new Vector2(64f, 44f);
         private static readonly Vector2 CompactPanelAnchor = new Vector2(0.5f, 0f);
-        private static readonly Vector2 CompactPanelSize = new Vector2(860f, 310f);
+        private static readonly Vector2 CompactPanelSize = new Vector2(860f, 368f);
         private static readonly Vector2 CompactPanelPosition = new Vector2(0f, 20f);
         private static readonly Color PreviewEmptyColor = new Color(0.018f, 0.023f, 0.026f, 0.72f);
         private static readonly Color DisconnectedColor = new Color(0.88f, 0.22f, 0.29f, 1f);
@@ -66,6 +66,7 @@ namespace PicoBridge.UI
             ConfigureImmersiveControl();
             ConfigureServerUrlControl();
             ConfigureResolutionControl();
+            ConfigureAudioControls();
             ConfigureArmSourceControl();
             ConfigureMountCalibControls();
             ConfigureHandTrimControls();
@@ -96,6 +97,8 @@ namespace PicoBridge.UI
 
         private void OnDestroy()
         {
+            if (view != null && view.audioButton != null) view.audioButton.onClick.RemoveListener(ToggleAudio);
+            if (view != null && view.microphoneMuteButton != null) view.microphoneMuteButton.onClick.RemoveListener(ToggleMicrophoneMute);
             if (view != null && view.uiOpacitySlider != null)
                 view.uiOpacitySlider.onValueChanged.RemoveListener(SetUiOpacity);
             if (view != null && view.collapseButton != null)
@@ -108,6 +111,28 @@ namespace PicoBridge.UI
                 view.resolution720Button.onClick.RemoveListener(SelectResolution720);
             if (view != null && view.resolution1080Button != null)
                 view.resolution1080Button.onClick.RemoveListener(SelectResolution1080);
+        }
+
+        private void ConfigureAudioControls()
+        {
+            if (view.audioButton != null) view.audioButton.onClick.AddListener(ToggleAudio);
+            if (view.microphoneMuteButton != null) view.microphoneMuteButton.onClick.AddListener(ToggleMicrophoneMute);
+        }
+
+        private void ToggleAudio() { manager?.Audio?.ToggleAudio(); }
+        private void ToggleMicrophoneMute() { manager?.Audio?.ToggleMute(); }
+
+        private void RefreshAudioControls()
+        {
+            var audio = manager != null ? manager.Audio : null;
+            if (view.audioStatusText != null) view.audioStatusText.text = audio != null ? audio.Status : "Audio unavailable";
+            if (view.audioButton != null)
+                view.audioButton.GetComponentInChildren<TMPro.TMP_Text>().text = audio != null && audio.Enabled ? "Stop audio" : "Start audio";
+            if (view.microphoneMuteButton != null)
+            {
+                view.microphoneMuteButton.interactable = audio != null && audio.Enabled;
+                view.microphoneMuteButton.GetComponentInChildren<TMPro.TMP_Text>().text = audio != null && audio.Muted ? "Unmute mic" : "Mute mic";
+            }
         }
 
         private void ConfigureImmersiveControl()
@@ -455,6 +480,7 @@ namespace PicoBridge.UI
                 return;
 
             RefreshConnectionStatus();
+            RefreshAudioControls();
             RefreshTrackingStatus();
             RefreshCameraStatus();
             RefreshArmSourceControl();

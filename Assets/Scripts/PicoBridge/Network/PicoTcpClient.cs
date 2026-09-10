@@ -273,7 +273,11 @@ namespace PicoBridge.Network
                 try
                 {
                     int n = socket.Receive(buf);
-                    if (n <= 0) break;
+                    if (n <= 0)
+                    {
+                        Debug.Log("[PicoBridge] TCP peer closed the receive stream");
+                        break;
+                    }
 
                     lock (_recvBuffer)
                     {
@@ -283,12 +287,14 @@ namespace PicoBridge.Network
                             _recvQueue.Enqueue(pkt);
                     }
                 }
-                catch (SocketException e) when (e.SocketErrorCode == SocketError.TimedOut)
+                catch (SocketException e) when (e.SocketErrorCode == SocketError.TimedOut
+                    || e.SocketErrorCode == SocketError.WouldBlock)
                 {
                     continue;
                 }
-                catch (SocketException)
+                catch (SocketException e)
                 {
+                    Debug.LogWarning($"[PicoBridge] TCP I/O failed: {e.SocketErrorCode} ({e.ErrorCode}) {e.Message}");
                     break;
                 }
                 catch (ObjectDisposedException)
@@ -327,8 +333,9 @@ namespace PicoBridge.Network
                         Thread.Sleep(1);
                     }
                 }
-                catch (SocketException)
+                catch (SocketException e)
                 {
+                    Debug.LogWarning($"[PicoBridge] TCP I/O failed: {e.SocketErrorCode} ({e.ErrorCode}) {e.Message}");
                     break;
                 }
                 catch (ObjectDisposedException)
@@ -467,8 +474,7 @@ namespace PicoBridge.Network
                 && generation == Volatile.Read(ref _connectGeneration)
                 && State == SocketState.Working
                 && ReferenceEquals(_socket, socket)
-                && socket != null
-                && socket.Connected;
+                && socket != null; // I/O results own liveness; Connected can change on a timeout.
         }
 
         private void CloseSocketQuietly(Socket socket)

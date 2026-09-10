@@ -25,6 +25,7 @@
 - **PICO tracking bridge**: headset, controllers, hands, body, and Motion Tracker data.
 - **PC-side Python SDK**: import `PicoBridge` directly from other Python projects.
 - **Optional video return**: push MuJoCo / OpenCV / RealSense / test-pattern RGB frames back to the headset.
+- **Integrated two-way audio**: microphone and speaker streaming in the tracking app; [English](docs/en/audio.md) / [中文](docs/zh/audio.md).
 - **Built-in 3D Unity mainline**: no URP or Live Preview dependency.
 - **Dependency-friendly PC package**: downstream projects can depend only on `pc_receiver`.
 

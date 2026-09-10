@@ -70,6 +70,8 @@ namespace PicoBridge
         private Coroutine _videoSeeThroughCoroutine;
 #endif
 
+        public Audio.PicoAudioController Audio { get; private set; }
+
         public PicoTcpClient TcpClient => _tcp;
         public UdpDiscovery Discovery => _discovery;
         public WebRtcCameraReceiver WebRtcCamera => _webRtcCamera;
@@ -91,6 +93,7 @@ namespace PicoBridge
             Tracking.TrackerCalibrationSampleLog.EnsureLoaded();
             Tracking.HeadFrameProbe.EnsureLoaded();
 
+            Audio = gameObject.AddComponent<Audio.PicoAudioController>();
             _tcp = gameObject.AddComponent<PicoTcpClient>();
             _tcp.serverAddress = serverAddress;
             _tcp.serverPort = serverPort;

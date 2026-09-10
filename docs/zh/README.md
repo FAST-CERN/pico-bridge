@@ -10,6 +10,8 @@ PICO Bridge 把 PICO 4 / PICO 4 Ultra 的头显、手柄、手部、身体和 Mo
 | [Unity 结构和开发](unity-development.md) | Unity 版本、项目结构、编辑器菜单、开发规则和验证步骤。 |
 | [编译与安装](build-and-install.md) | 在任意电脑上从 clone 到 `adb install` 的完整流程、统一签名密钥与故障对照。 |
 
+在动作追踪应用中使用双向音频：[集成音频](audio.md)。
+
 ## 快速开始
 
 1. PICO 和 PC 连接同一个局域网。
