@@ -83,3 +83,7 @@ Builds/
 # Editor build/smoke logs (local diagnostics)
 build-*.log
 avatar-setup.log
+
+# C# tools build products
+tools/**/[Bb]in/
+tools/**/[Oo]bj/
